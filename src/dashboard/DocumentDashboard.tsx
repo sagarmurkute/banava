@@ -18,6 +18,7 @@ import { ImportEngine } from '../import/importEngine';
 import { ExportEngine } from '../export/exportEngine';
 import { DocumentCard } from './DocumentCard';
 import { ProjectTree } from './ProjectTree';
+import { UserAvatarMenu } from '../backend/auth/UserAvatarMenu';
 import type { DocumentSummary, BanavaProject, BanavaFolder } from '../documents/types';
 import './dashboard.css';
 
@@ -339,6 +340,8 @@ export const DocumentDashboard: React.FC = () => {
               <Plus size={16} />
               <span>New Design</span>
             </button>
+
+            <UserAvatarMenu />
           </div>
         </header>
 

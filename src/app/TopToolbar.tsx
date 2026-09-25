@@ -31,6 +31,7 @@ import { processImageFile } from '../utils/imageImporter';
 import type { ToolType } from '../types/document';
 import { IconButton } from '../components/ui/IconButton';
 import { TopFileMenu } from './TopFileMenu';
+import { UserAvatarMenu } from '../backend/auth/UserAvatarMenu';
 import './app.css';
 
 export const TopToolbar: React.FC = () => {
@@ -290,6 +291,9 @@ export const TopToolbar: React.FC = () => {
             <span>Save</span>
           </button>
         </div>
+
+        <div className="toolbar-btn-divider" />
+        <UserAvatarMenu />
       </div>
     </header>
   );

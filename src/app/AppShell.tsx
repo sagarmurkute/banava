@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { TopToolbar } from './TopToolbar';
 import { LeftSidebar } from './LeftSidebar';
 import { CanvasWorkspace } from '../canvas/CanvasWorkspace';
@@ -9,6 +9,10 @@ import { DocumentDashboard } from '../dashboard/DocumentDashboard';
 import { DocumentInfoModal } from './DocumentInfoModal';
 import { SnapshotsModal } from './SnapshotsModal';
 import { RecoveryModal } from './RecoveryModal';
+import { AuthModal } from '../backend/auth/AuthModal';
+import { AccountSettingsModal } from '../backend/auth/AccountSettingsModal';
+import { useAuthStore } from '../backend/auth/useAuthStore';
+import { SyncEngine } from '../backend/sync/syncEngine';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { useUIStore } from '../state/useUIStore';
 import './app.css';
@@ -18,34 +22,42 @@ export const AppShell: React.FC = () => {
   useKeyboardShortcuts();
   const { viewMode } = useUIStore();
 
-  if (viewMode === 'dashboard') {
-    return (
-      <>
-        <DocumentDashboard />
-        <RecoveryModal />
-      </>
-    );
-  }
+  useEffect(() => {
+    // Initialize Auth session & Sync engine
+    useAuthStore.getState().initialize();
+    SyncEngine.initialize();
+  }, []);
 
   return (
-    <div className="app-layout-container">
-      <TopToolbar />
-      <div className="app-main-workspace">
-        <LeftSidebar />
-        <main className="app-canvas-container-wrapper">
-          <CanvasWorkspace />
-        </main>
-        <div className="app-right-inspector-wrapper">
-          <RightInspector />
-        </div>
-      </div>
-      <BottomBar />
-      <PrototypePlayer />
+    <>
+      {viewMode === 'dashboard' ? (
+        <DocumentDashboard />
+      ) : (
+        <div className="app-layout-container">
+          <TopToolbar />
+          <div className="app-main-workspace">
+            <LeftSidebar />
+            <main className="app-canvas-container-wrapper">
+              <CanvasWorkspace />
+            </main>
+            <div className="app-right-inspector-wrapper">
+              <RightInspector />
+            </div>
+          </div>
+          <BottomBar />
+          <PrototypePlayer />
 
-      {/* Phase 6 Document Modals */}
-      <DocumentInfoModal />
-      <SnapshotsModal />
+          {/* Phase 6 Document Modals */}
+          <DocumentInfoModal />
+          <SnapshotsModal />
+        </div>
+      )}
+
+      {/* Global Modals */}
       <RecoveryModal />
-    </div>
+      <AuthModal />
+      <AccountSettingsModal />
+    </>
   );
 };
+

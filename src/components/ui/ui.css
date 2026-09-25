@@ -1,0 +1,250 @@
+/* Icon Button */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.icon-button:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.icon-button.active {
+  background: var(--accent-primary);
+  color: #ffffff;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.icon-button.size-sm {
+  width: 26px;
+  height: 26px;
+}
+
+.icon-button.size-md {
+  width: 32px;
+  height: 32px;
+}
+
+.icon-button.size-lg {
+  width: 38px;
+  height: 38px;
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Number Input */
+.number-input-container {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  height: 28px;
+  transition: border-color 0.15s ease;
+}
+
+.number-input-container:focus-within {
+  border-color: var(--border-focus);
+}
+
+.input-label-scrub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: ew-resize;
+  margin-right: 6px;
+  user-select: none;
+}
+
+.input-label-scrub:hover {
+  color: var(--accent-light);
+}
+
+.input-label-static {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+
+.number-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.input-suffix {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* Color Input */
+.color-input-container {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  height: 28px;
+  gap: 6px;
+  width: 100%;
+}
+
+.color-input-container:focus-within {
+  border-color: var(--border-focus);
+}
+
+.color-swatch-wrapper {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border-medium);
+  flex-shrink: 0;
+}
+
+.color-picker-native {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 30px;
+  height: 30px;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.color-swatch-preview {
+  width: 100%;
+  height: 100%;
+}
+
+.color-hex-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  min-width: 0;
+}
+
+.color-opacity-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 6px;
+  width: 46px;
+}
+
+.color-opacity-field {
+  width: 26px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 11px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.color-opacity-field::-webkit-inner-spin-button,
+.color-opacity-field::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.opacity-percent {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Select Input */
+.select-input-container {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  height: 28px;
+  width: 100%;
+}
+
+.select-input-container:focus-within {
+  border-color: var(--border-focus);
+}
+
+.select-input-field {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.select-input-field option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+/* Panel Section */
+.panel-section {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.panel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-section-header:hover .panel-section-title {
+  color: var(--text-primary);
+}
+
+.panel-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+
+.panel-section-chevron {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.panel-section-content {
+  padding: 4px 12px 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

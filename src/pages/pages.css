@@ -1,0 +1,116 @@
+.pages-panel-container {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-subtle);
+  max-height: 180px;
+}
+
+.pages-panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 36px;
+}
+
+.pages-header-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.pages-list-scroll {
+  overflow-y: auto;
+  padding: 4px 0;
+  max-height: 140px;
+}
+
+.page-item {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  user-select: none;
+  gap: 6px;
+}
+
+.page-item:hover {
+  background-color: var(--bg-surface-hover);
+}
+
+.page-item.active {
+  background-color: var(--bg-surface-active);
+  color: #ffffff;
+}
+
+.page-icon {
+  color: var(--text-muted);
+}
+
+.page-item.active .page-icon {
+  color: var(--accent-light);
+}
+
+.page-name-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-name-label {
+  font-size: 12px;
+  display: block;
+}
+
+.page-object-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.page-name-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-focus);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.page-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.page-item:hover .page-actions,
+.page-item.active .page-actions {
+  display: flex;
+}
+
+.page-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.page-action-btn.danger:hover {
+  color: var(--danger-color);
+}

@@ -1,0 +1,52 @@
+.canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-canvas);
+  overflow: hidden;
+  user-select: none;
+  outline: none;
+}
+
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Infinite Canvas Grid */
+.canvas-grid-pattern {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Marquee Drag Box */
+.canvas-marquee-box {
+  position: absolute;
+  border: 1px solid var(--accent-light);
+  background-color: rgba(99, 102, 241, 0.12);
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* Creation Ghost Preview */
+.canvas-creation-ghost {
+  position: absolute;
+  border: 1.5px dashed var(--accent-light);
+  background-color: rgba(99, 102, 241, 0.15);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* Selection Handles */
+.selection-handle:hover {
+  transform: scale(1.3);
+  background-color: var(--accent-primary) !important;
+}
+
+.selection-box-border:hover {
+  border-color: var(--accent-light) !important;
+}

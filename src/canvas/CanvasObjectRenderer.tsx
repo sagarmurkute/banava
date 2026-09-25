@@ -1,5 +1,16 @@
-import React from 'react';
-import type { SceneObject, RectangleObject, FrameObject, EllipseObject, LineObject, TextObject } from '../types/document';
+import React, { useEffect, useState } from 'react';
+import type {
+  SceneObject,
+  RectangleObject,
+  FrameObject,
+  EllipseObject,
+  PolygonObject,
+  LineObject,
+  TextObject,
+  ImageObject,
+} from '../types/document';
+import { generatePolygonPoints } from '../utils/polygon';
+import { getAssetBlob } from '../storage/indexedDb';
 
 interface CanvasObjectRendererProps {
   object: SceneObject;
@@ -16,6 +27,31 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
   onSelect,
   onDoubleClick,
 }) => {
+  const [imageSrc, setImageSrc] = useState<string | null>(
+    object.type === 'image' ? (object as ImageObject).src || null : null
+  );
+
+  // Load binary asset from IndexedDB if not cached in memory
+  useEffect(() => {
+    if (object.type === 'image') {
+      const imgObj = object as ImageObject;
+      if (!imgObj.src && imgObj.assetId) {
+        getAssetBlob(imgObj.assetId).then((blob) => {
+          if (blob) {
+            if (typeof blob === 'string') {
+              setImageSrc(blob);
+            } else {
+              const url = URL.createObjectURL(blob);
+              setImageSrc(url);
+            }
+          }
+        });
+      } else if (imgObj.src) {
+        setImageSrc(imgObj.src);
+      }
+    }
+  }, [object]);
+
   if (!object.visible) return null;
 
   const style: React.CSSProperties = {
@@ -53,7 +89,6 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
           onMouseDown={handleMouseDown}
           onDoubleClick={(e) => onDoubleClick?.(e, frame.id)}
         >
-          {/* Frame Label */}
           <div
             style={{
               position: 'absolute',
@@ -106,6 +141,86 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
       );
     }
 
+    case 'polygon': {
+      const poly = object as PolygonObject;
+      const points = generatePolygonPoints(
+        poly.width,
+        poly.height,
+        poly.points || 3,
+        poly.isStar,
+        poly.starRatio || 0.5
+      );
+
+      return (
+        <div
+          id={`obj-${poly.id}`}
+          style={style}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={(e) => onDoubleClick?.(e, poly.id)}
+        >
+          <svg
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${poly.width} ${poly.height}`}
+            style={{ display: 'block', overflow: 'visible' }}
+          >
+            <polygon
+              points={points}
+              fill={poly.fill || '#eab308'}
+              stroke={poly.stroke || 'none'}
+              strokeWidth={poly.strokeWidth || 0}
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      );
+    }
+
+    case 'image': {
+      const img = object as ImageObject;
+      return (
+        <div
+          id={`obj-${img.id}`}
+          style={{
+            ...style,
+            borderRadius: `${img.cornerRadius || 0}px`,
+            overflow: 'hidden',
+            backgroundColor: '#1e293b',
+          }}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={(e) => onDoubleClick?.(e, img.id)}
+        >
+          {imageSrc ? (
+            <img
+              src={imageSrc}
+              alt={img.name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: img.fit || 'cover',
+                pointerEvents: 'none',
+                display: 'block',
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#64748b',
+                fontSize: '11px',
+              }}
+            >
+              Loading Image...
+            </div>
+          )}
+        </div>
+      );
+    }
+
     case 'line': {
       const line = object as LineObject;
       return (
@@ -115,7 +230,7 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
             ...style,
             height: `${Math.max(line.strokeWidth || 2, 2)}px`,
             backgroundColor: line.stroke || '#94a3b8',
-            borderRadius: `${(line.strokeWidth || 2) / 2}px`,
+            borderRadius: line.lineCap === 'round' ? `${(line.strokeWidth || 2) / 2}px` : '0px',
           }}
           onMouseDown={handleMouseDown}
         />
@@ -135,8 +250,9 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
             fontFamily: text.fontFamily || 'Inter, sans-serif',
             textAlign: text.textAlign || 'left',
             lineHeight: text.lineHeight || 1.2,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
+            letterSpacing: `${text.letterSpacing || 0}px`,
+            whiteSpace: text.autoResize === 'auto-width' ? 'nowrap' : 'pre-wrap',
+            wordBreak: text.autoResize === 'auto-width' ? 'normal' : 'break-word',
             display: 'flex',
             alignItems: 'center',
             userSelect: 'none',

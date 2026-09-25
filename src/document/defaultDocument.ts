@@ -1,7 +1,7 @@
 import type { DocumentModel, Page } from '../types/document';
 import { generateId } from '../utils/id';
 
-export const CURRENT_DOCUMENT_VERSION = 1;
+export const CURRENT_DOCUMENT_VERSION = 2;
 
 export function createDefaultDocument(): DocumentModel {
   const page1Id = generateId('page');
@@ -27,6 +27,7 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#181b24',
         stroke: '#2e3444',
         strokeWidth: 1,
+        strokeOpacity: 100,
         cornerRadius: 24,
         clipsContent: true,
       },
@@ -46,6 +47,7 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#3b82f6',
         stroke: '#60a5fa',
         strokeWidth: 1,
+        strokeOpacity: 100,
         cornerRadius: 16,
       },
       {
@@ -68,6 +70,8 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#ffffff',
         textAlign: 'left',
         lineHeight: 1.2,
+        letterSpacing: 0,
+        autoResize: 'auto-height',
       },
       {
         id: generateId('text'),
@@ -89,6 +93,8 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#dbeafe',
         textAlign: 'left',
         lineHeight: 1.4,
+        letterSpacing: 0,
+        autoResize: 'auto-height',
       },
       {
         id: generateId('rect'),
@@ -106,6 +112,7 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#10b981',
         stroke: '#34d399',
         strokeWidth: 1,
+        strokeOpacity: 100,
         cornerRadius: 12,
       },
       {
@@ -128,6 +135,8 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#ffffff',
         textAlign: 'center',
         lineHeight: 1.2,
+        letterSpacing: 0,
+        autoResize: 'auto-width',
       },
       {
         id: generateId('ellipse'),
@@ -145,6 +154,28 @@ export function createDefaultDocument(): DocumentModel {
         fill: '#8b5cf6',
         stroke: '#a78bfa',
         strokeWidth: 2,
+        strokeOpacity: 100,
+      },
+      {
+        id: generateId('polygon'),
+        name: 'Feature Star',
+        type: 'polygon',
+        x: 200,
+        y: 375,
+        width: 56,
+        height: 56,
+        rotation: 0,
+        opacity: 100,
+        visible: true,
+        locked: false,
+        parentId: frame1Id,
+        points: 5,
+        isStar: true,
+        starRatio: 0.5,
+        fill: '#f59e0b',
+        stroke: '#fbbf24',
+        strokeWidth: 1,
+        strokeOpacity: 100,
       },
       {
         id: generateId('line'),
@@ -161,6 +192,7 @@ export function createDefaultDocument(): DocumentModel {
         parentId: frame1Id,
         stroke: '#475569',
         strokeWidth: 2,
+        strokeOpacity: 100,
       },
       {
         id: generateId('text'),
@@ -175,13 +207,15 @@ export function createDefaultDocument(): DocumentModel {
         visible: true,
         locked: false,
         parentId: frame1Id,
-        content: 'Press V for Select, R for Rectangle, T for Text',
+        content: 'Press V for Select, R for Rectangle, T for Text, P for Polygon',
         fontSize: 12,
         fontWeight: 400,
         fontFamily: 'Inter, system-ui, sans-serif',
         fill: '#94a3b8',
         textAlign: 'center',
         lineHeight: 1.2,
+        letterSpacing: 0,
+        autoResize: 'auto-width',
       },
     ],
   };
@@ -192,6 +226,7 @@ export function createDefaultDocument(): DocumentModel {
     name: 'Untitled Design',
     pages: [defaultPage],
     activePageId: page1Id,
+    assets: {},
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

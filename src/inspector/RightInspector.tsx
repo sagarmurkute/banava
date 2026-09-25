@@ -10,6 +10,12 @@ import {
   Rows,
   Sliders,
   Trash2,
+  ChevronsUp,
+  ChevronsDown,
+  ArrowUp,
+  ArrowDown,
+  Star,
+  Triangle,
 } from 'lucide-react';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
@@ -19,7 +25,15 @@ import { SelectInput } from '../components/ui/SelectInput';
 import { PanelSection } from '../components/ui/PanelSection';
 import { IconButton } from '../components/ui/IconButton';
 import { calculateBoundingBox } from '../utils/geometry';
-import type { RectangleObject, FrameObject, TextObject, SceneObject } from '../types/document';
+import type {
+  RectangleObject,
+  FrameObject,
+  TextObject,
+  PolygonObject,
+  ImageObject,
+  LineObject,
+  SceneObject,
+} from '../types/document';
 import './inspector.css';
 
 const FONT_FAMILIES = [
@@ -38,8 +52,27 @@ const FONT_WEIGHTS = [
   { value: '800', label: 'Extra-Bold (800)' },
 ];
 
+const AUTO_RESIZE_OPTIONS = [
+  { value: 'auto-width', label: 'Auto Width' },
+  { value: 'auto-height', label: 'Auto Height' },
+  { value: 'fixed', label: 'Fixed Size' },
+];
+
+const IMAGE_FIT_OPTIONS = [
+  { value: 'cover', label: 'Cover' },
+  { value: 'contain', label: 'Contain' },
+  { value: 'fill', label: 'Fill' },
+];
+
 export const RightInspector: React.FC = () => {
-  const { getActivePage, updateObject, updateObjects, deleteObjects, alignObjects } = useDocumentStore();
+  const {
+    getActivePage,
+    updateObject,
+    updateObjects,
+    deleteObjects,
+    alignObjects,
+    reorderObject,
+  } = useDocumentStore();
   const { selectedIds } = useSelectionStore();
 
   const activePage = getActivePage();
@@ -178,12 +211,38 @@ export const RightInspector: React.FC = () => {
     <aside className="app-right-inspector">
       <div className="inspector-header">
         <span className="inspector-title truncate">{target.name}</span>
-        <IconButton
-          icon={<Trash2 size={14} />}
-          size="sm"
-          tooltip="Delete object"
-          onClick={() => deleteObjects([target.id])}
-        />
+        <div className="flex items-center gap-1">
+          <IconButton
+            icon={<ChevronsUp size={13} />}
+            size="sm"
+            tooltip="Bring to front"
+            onClick={() => reorderObject(target.id, 'top')}
+          />
+          <IconButton
+            icon={<ArrowUp size={13} />}
+            size="sm"
+            tooltip="Bring forward"
+            onClick={() => reorderObject(target.id, 'up')}
+          />
+          <IconButton
+            icon={<ArrowDown size={13} />}
+            size="sm"
+            tooltip="Send backward"
+            onClick={() => reorderObject(target.id, 'down')}
+          />
+          <IconButton
+            icon={<ChevronsDown size={13} />}
+            size="sm"
+            tooltip="Send to back"
+            onClick={() => reorderObject(target.id, 'bottom')}
+          />
+          <IconButton
+            icon={<Trash2 size={13} />}
+            size="sm"
+            tooltip="Delete object"
+            onClick={() => deleteObjects([target.id])}
+          />
+        </div>
       </div>
 
       {/* Position & Transform */}
@@ -221,11 +280,11 @@ export const RightInspector: React.FC = () => {
             onChange={(val) => handleUpdate({ rotation: (val % 360 + 360) % 360 })}
             suffix="°"
           />
-          {/* Corner radius for rectangles and frames */}
-          {(target.type === 'rectangle' || target.type === 'frame') && (
+          {/* Corner radius for rectangles, frames, images */}
+          {(target.type === 'rectangle' || target.type === 'frame' || target.type === 'image') && (
             <NumberInput
               label="R"
-              value={(target as RectangleObject | FrameObject).cornerRadius || 0}
+              value={(target as RectangleObject | FrameObject | ImageObject).cornerRadius || 0}
               onChange={(val) => handleUpdate({ cornerRadius: Math.max(0, val) })}
               min={0}
               suffix="px"
@@ -234,13 +293,70 @@ export const RightInspector: React.FC = () => {
         </div>
       </PanelSection>
 
+      {/* Polygon Specific Settings */}
+      {target.type === 'polygon' && (
+        <PanelSection title="Polygon / Star">
+          <div className="inspector-row-2col">
+            <NumberInput
+              label="Points"
+              value={(target as PolygonObject).points || 3}
+              onChange={(val) => handleUpdate({ points: Math.max(3, Math.min(20, Math.round(val))) })}
+              min={3}
+              max={20}
+            />
+            <div className="flex items-center gap-2 mt-1">
+              <IconButton
+                icon={<Triangle size={14} />}
+                isActive={!(target as PolygonObject).isStar}
+                size="sm"
+                tooltip="Regular Polygon"
+                onClick={() => handleUpdate({ isStar: false })}
+              />
+              <IconButton
+                icon={<Star size={14} />}
+                isActive={(target as PolygonObject).isStar}
+                size="sm"
+                tooltip="Star Shape"
+                onClick={() => handleUpdate({ isStar: true })}
+              />
+            </div>
+          </div>
+          {(target as PolygonObject).isStar && (
+            <div className="inspector-field-group">
+              <span className="field-label">Inner Star Ratio</span>
+              <NumberInput
+                value={Math.round(((target as PolygonObject).starRatio || 0.5) * 100)}
+                onChange={(val) => handleUpdate({ starRatio: Math.max(0.1, Math.min(0.9, val / 100)) })}
+                min={10}
+                max={90}
+                suffix="%"
+              />
+            </div>
+          )}
+        </PanelSection>
+      )}
+
+      {/* Image Specific Settings */}
+      {target.type === 'image' && (
+        <PanelSection title="Image Settings">
+          <div className="inspector-field-group">
+            <span className="field-label">Image Fit</span>
+            <SelectInput
+              value={(target as ImageObject).fit || 'cover'}
+              options={IMAGE_FIT_OPTIONS}
+              onChange={(val) => handleUpdate({ fit: val })}
+            />
+          </div>
+        </PanelSection>
+      )}
+
       {/* Appearance: Fill, Stroke, Opacity */}
       <PanelSection title="Appearance">
         {'fill' in target && (
           <div className="inspector-field-group">
             <span className="field-label">Fill</span>
             <ColorInput
-              value={(target as RectangleObject | FrameObject | TextObject).fill || '#ffffff'}
+              value={(target as RectangleObject | FrameObject | TextObject | PolygonObject).fill || '#ffffff'}
               onChange={(val) => handleUpdate({ fill: val })}
               opacity={target.opacity ?? 100}
               onOpacityChange={(op) => handleUpdate({ opacity: op })}
@@ -252,8 +368,10 @@ export const RightInspector: React.FC = () => {
           <div className="inspector-field-group">
             <span className="field-label">Stroke</span>
             <ColorInput
-              value={(target as RectangleObject).stroke || '#2e3444'}
+              value={(target as RectangleObject | LineObject).stroke || '#2e3444'}
               onChange={(val) => handleUpdate({ stroke: val })}
+              opacity={(target as RectangleObject).strokeOpacity ?? 100}
+              onOpacityChange={(op) => handleUpdate({ strokeOpacity: op })}
             />
             <div className="mt-1">
               <NumberInput
@@ -307,6 +425,30 @@ export const RightInspector: React.FC = () => {
               min={6}
               max={200}
               suffix="px"
+            />
+          </div>
+
+          <div className="inspector-row-2col">
+            <NumberInput
+              label="Height"
+              value={(target as TextObject).lineHeight || 1.2}
+              onChange={(val) => handleUpdate({ lineHeight: Math.max(0.5, Math.min(3, val)) })}
+              step={0.1}
+            />
+            <NumberInput
+              label="Spacing"
+              value={(target as TextObject).letterSpacing || 0}
+              onChange={(val) => handleUpdate({ letterSpacing: val })}
+              suffix="px"
+            />
+          </div>
+
+          <div className="inspector-field-group">
+            <span className="field-label">Auto Sizing</span>
+            <SelectInput
+              value={(target as TextObject).autoResize || 'auto-width'}
+              options={AUTO_RESIZE_OPTIONS}
+              onChange={(val) => handleUpdate({ autoResize: val })}
             />
           </div>
 

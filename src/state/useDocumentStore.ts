@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { DocumentModel, Page, SceneObject, AlignmentType } from '../types/document';
-import { loadDocumentFromStorage, saveDocumentToStorage } from '../storage/localStorage';
+import type { DocumentModel, Page, SceneObject, AlignmentType, Asset, SaveStatus } from '../types/document';
+import { loadDocumentFromStorage, saveDocumentToStorage, saveDocumentImmediate } from '../storage/localStorage';
 import { generateId } from '../utils/id';
 import { calculateBoundingBox } from '../utils/geometry';
 
@@ -8,6 +8,7 @@ interface DocumentStoreState {
   doc: DocumentModel;
   past: DocumentModel[];
   future: DocumentModel[];
+  saveStatus: SaveStatus;
 
   // Page actions
   setActivePage: (pageId: string) => void;
@@ -25,8 +26,15 @@ interface DocumentStoreState {
   toggleVisibility: (id: string) => void;
   toggleLock: (id: string) => void;
   renameObject: (id: string, name: string) => void;
+  duplicateObjects: (ids: string[], offset?: { x: number; y: number }) => string[];
   reorderObject: (objectId: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
+  groupObjects: (ids: string[]) => string | null;
+  ungroupObjects: (groupIds: string[]) => string[];
   alignObjects: (alignment: AlignmentType, selectedIds: string[]) => void;
+
+  // Asset actions
+  addAsset: (asset: Asset) => void;
+  getAsset: (assetId: string) => Asset | undefined;
 
   // History actions
   commitHistory: () => void;
@@ -35,8 +43,9 @@ interface DocumentStoreState {
   canUndo: () => boolean;
   canRedo: () => boolean;
 
-  // Manual save
+  // Persistence
   save: () => void;
+  setSaveStatus: (status: SaveStatus) => void;
 }
 
 const MAX_HISTORY = 40;
@@ -50,6 +59,9 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
   doc: initialDoc,
   past: [],
   future: [],
+  saveStatus: 'saved',
+
+  setSaveStatus: (status: SaveStatus) => set({ saveStatus: status }),
 
   getActivePage: () => {
     const { doc } = get();
@@ -61,13 +73,26 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
     return page?.objects.find((o) => o.id === id);
   },
 
+  addAsset: (asset: Asset) => {
+    set((state) => {
+      const nextAssets = { ...state.doc.assets, [asset.id]: asset };
+      const nextDoc = { ...state.doc, assets: nextAssets, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  getAsset: (assetId: string) => {
+    return get().doc.assets[assetId];
+  },
+
   setActivePage: (pageId: string) => {
     set((state) => {
       const pageExists = state.doc.pages.some((p) => p.id === pageId);
       if (!pageExists) return state;
 
       const nextDoc = { ...state.doc, activePageId: pageId, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return { doc: nextDoc };
     });
   },
@@ -89,7 +114,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         updatedAt: Date.now(),
       };
 
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -106,7 +131,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         p.id === pageId ? { ...p, name: name.trim() } : p
       );
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -117,7 +142,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
 
   deletePage: (pageId: string) => {
     set((state) => {
-      if (state.doc.pages.length <= 1) return state; // Don't delete the only page
+      if (state.doc.pages.length <= 1) return state;
 
       const nextPages = state.doc.pages.filter((p) => p.id !== pageId);
       const nextActiveId =
@@ -130,7 +155,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         updatedAt: Date.now(),
       };
 
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -150,7 +175,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -181,7 +206,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       if (!hasChange) return state;
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
         past: recordHistory
@@ -211,7 +236,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
         past: recordHistory
@@ -231,13 +256,12 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
 
       const nextPages = state.doc.pages.map((p) => {
         if (p.id !== activeId) return p;
-        // Also remove children if a frame is deleted
         const remaining = p.objects.filter((obj) => !idsSet.has(obj.id) && (!obj.parentId || !idsSet.has(obj.parentId)));
         return { ...p, objects: remaining };
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
@@ -259,7 +283,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -280,7 +304,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
@@ -302,13 +326,50 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
         doc: nextDoc,
       };
     });
+  },
+
+  duplicateObjects: (ids: string[], offset = { x: 20, y: 20 }) => {
+    if (ids.length === 0) return [];
+    const newIds: string[] = [];
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const cloned: SceneObject[] = [];
+        for (const orig of p.objects) {
+          if (ids.includes(orig.id)) {
+            const newId = generateId(orig.type);
+            newIds.push(newId);
+            const clonedObj: SceneObject = JSON.parse(JSON.stringify(orig));
+            clonedObj.id = newId;
+            clonedObj.name = `${orig.name} Copy`;
+            clonedObj.x = orig.x + offset.x;
+            clonedObj.y = orig.y + offset.y;
+            cloned.push(clonedObj);
+          }
+        }
+
+        return { ...p, objects: [...p.objects, ...cloned] };
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+    return newIds;
   },
 
   reorderObject: (objectId: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
@@ -340,13 +401,104 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
         future: [],
         doc: nextDoc,
       };
     });
+  },
+
+  groupObjects: (ids: string[]) => {
+    if (ids.length < 2) return null;
+    const groupId = generateId('group');
+
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const targets = p.objects.filter((o) => ids.includes(o.id));
+        if (targets.length < 2) return p;
+
+        const bbox = calculateBoundingBox(targets);
+        if (!bbox) return p;
+
+        const groupObj: SceneObject = {
+          id: groupId,
+          name: `Group ${p.objects.filter((o) => o.type === 'group').length + 1}`,
+          type: 'group',
+          x: bbox.minX,
+          y: bbox.minY,
+          width: bbox.width,
+          height: bbox.height,
+          rotation: 0,
+          opacity: 100,
+          visible: true,
+          locked: false,
+          parentId: null,
+          childIds: ids,
+        };
+
+        const updatedObjects = p.objects.map((o) =>
+          ids.includes(o.id) ? ({ ...o, parentId: groupId } as SceneObject) : o
+        );
+
+        return { ...p, objects: [...updatedObjects, groupObj] };
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return groupId;
+  },
+
+  ungroupObjects: (groupIds: string[]) => {
+    const releasedIds: string[] = [];
+
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const groupIdsSet = new Set(groupIds);
+
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const nextObjects: SceneObject[] = [];
+        for (const obj of p.objects) {
+          if (groupIdsSet.has(obj.id)) {
+            // Remove group itself
+            continue;
+          }
+          if (obj.parentId && groupIdsSet.has(obj.parentId)) {
+            releasedIds.push(obj.id);
+            nextObjects.push({ ...obj, parentId: null } as SceneObject);
+          } else {
+            nextObjects.push(obj);
+          }
+        }
+
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return releasedIds;
   },
 
   alignObjects: (alignment: AlignmentType, selectedIds: string[]) => {
@@ -422,7 +574,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
-      saveDocumentToStorage(nextDoc);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
@@ -447,7 +599,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       const newPast = state.past.slice(0, state.past.length - 1);
       const newFuture = [cloneDoc(state.doc), ...state.future];
 
-      saveDocumentToStorage(previous);
+      saveDocumentToStorage(previous, (status) => get().setSaveStatus(status));
       return {
         past: newPast,
         future: newFuture,
@@ -464,7 +616,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       const newFuture = state.future.slice(1);
       const newPast = [...state.past, cloneDoc(state.doc)];
 
-      saveDocumentToStorage(next);
+      saveDocumentToStorage(next, (status) => get().setSaveStatus(status));
       return {
         past: newPast,
         future: newFuture,
@@ -477,6 +629,8 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
   canRedo: () => get().future.length > 0,
 
   save: () => {
-    saveDocumentToStorage(get().doc);
+    get().setSaveStatus('saving');
+    const success = saveDocumentImmediate(get().doc);
+    get().setSaveStatus(success ? 'saved' : 'error');
   },
 }));

@@ -6,9 +6,13 @@ import { useToolStore } from '../state/useToolStore';
 import { useUIStore } from '../state/useUIStore';
 import { CanvasObjectRenderer } from './CanvasObjectRenderer';
 import { SelectionOverlay } from './SelectionOverlay';
+import { CanvasRulers } from './CanvasRulers';
+import { ContextMenu } from './ContextMenu';
 import { calculateBoundingBox, screenToCanvas, snap } from '../utils/geometry';
+import { calculateSmartGuidesAndSnap } from '../utils/smartGuides';
+import { processImageFile } from '../utils/imageImporter';
 import { generateId } from '../utils/id';
-import type { SceneObject, ResizeHandleType, BoundingBox } from '../types/document';
+import type { SceneObject, ResizeHandleType, BoundingBox, SmartGuideLine } from '../types/document';
 import './canvas.css';
 
 interface DragState {
@@ -17,6 +21,7 @@ interface DragState {
   startY: number;
   canvasStartX: number;
   canvasStartY: number;
+  isAltDuplicated?: boolean;
   handle?: ResizeHandleType;
   initialObjects?: Record<string, { x: number; y: number; width: number; height: number }>;
   initialBbox?: BoundingBox;
@@ -34,10 +39,11 @@ export const CanvasWorkspace: React.FC = () => {
   
   // Store hooks
   const { x: vpX, y: vpY, zoom, pan, zoomTo } = useViewportStore();
-  const { getActivePage, addObject, updateObjects, commitHistory } = useDocumentStore();
+  const { getActivePage, addObject, updateObjects, commitHistory, duplicateObjects } = useDocumentStore();
   const { selectedIds, select, selectMultiple, deselectAll, hoveredId } = useSelectionStore();
   const { activeTool, setActiveTool, isSpacePressed } = useToolStore();
-  const { showGrid, snapToGrid, gridSize } = useUIStore();
+  const { showGrid, showRulers, snapToGrid, gridSize } = useUIStore();
+  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
 
   const activePage = getActivePage();
   const objects = activePage?.objects || [];
@@ -46,7 +52,9 @@ export const CanvasWorkspace: React.FC = () => {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [ghostBox, setGhostBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [marqueeBox, setMarqueeBox] = useState<MarqueeBox | null>(null);
+  const [activeGuides, setActiveGuides] = useState<SmartGuideLine[]>([]);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
 
   // Selected objects
   const selectedObjects = objects.filter((o) => selectedIds.includes(o.id));
@@ -79,18 +87,15 @@ export const CanvasWorkspace: React.FC = () => {
     const rect = containerRef.current.getBoundingClientRect();
 
     if (e.ctrlKey || e.metaKey) {
-      // Zoom centered at cursor
       const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
       zoomTo(zoom * zoomFactor, e.clientX, e.clientY, rect);
     } else {
-      // Pan
       pan(-e.deltaX, -e.deltaY);
     }
   };
 
   // Canvas Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If inline editing text, finish edit
     if (editingTextId) {
       setEditingTextId(null);
     }
@@ -115,7 +120,6 @@ export const CanvasWorkspace: React.FC = () => {
     // If active tool is a creation tool
     if (activeTool !== 'select') {
       if (activeTool === 'text') {
-        // Create text directly at click point
         const newText: SceneObject = {
           id: generateId('text'),
           name: 'Text',
@@ -136,6 +140,8 @@ export const CanvasWorkspace: React.FC = () => {
           fill: '#ffffff',
           textAlign: 'left',
           lineHeight: 1.2,
+          letterSpacing: 0,
+          autoResize: 'auto-width',
         };
         addObject(newText);
         select(newText.id);
@@ -144,7 +150,6 @@ export const CanvasWorkspace: React.FC = () => {
         return;
       }
 
-      // Start drag-to-create for frame, rectangle, ellipse, line
       setDragState({
         type: 'create',
         startX: e.clientX,
@@ -161,7 +166,6 @@ export const CanvasWorkspace: React.FC = () => {
       if (!e.shiftKey) {
         deselectAll();
       }
-      // Start marquee selection
       setDragState({
         type: 'marquee',
         startX: e.clientX,
@@ -177,21 +181,22 @@ export const CanvasWorkspace: React.FC = () => {
   const handleObjectSelect = (e: React.MouseEvent, objId: string) => {
     e.stopPropagation();
     if (isSpacePressed || e.button === 1) return;
-
     if (activeTool !== 'select') return;
 
-    const isAlreadySelected = selectedIds.includes(objId);
+    let currentSelected = selectedIds;
 
-    if (e.shiftKey) {
+    // Alt + Drag duplication
+    if (e.altKey && selectedIds.includes(objId)) {
+      const dupIds = duplicateObjects(selectedIds, { x: 0, y: 0 });
+      selectMultiple(dupIds);
+      currentSelected = dupIds;
+    } else if (e.shiftKey) {
       select(objId, true);
-    } else if (!isAlreadySelected) {
+      currentSelected = selectedIds.includes(objId) ? selectedIds.filter(i => i !== objId) : [...selectedIds, objId];
+    } else if (!selectedIds.includes(objId)) {
       select(objId, false);
+      currentSelected = [objId];
     }
-
-    // Prepare move drag
-    const currentSelected = !isAlreadySelected && !e.shiftKey
-      ? [objId]
-      : selectedIds.includes(objId) ? selectedIds : [...selectedIds, objId];
 
     const initialMap: Record<string, { x: number; y: number; width: number; height: number }> = {};
     for (const id of currentSelected) {
@@ -209,6 +214,7 @@ export const CanvasWorkspace: React.FC = () => {
       canvasStartX: x,
       canvasStartY: y,
       initialObjects: initialMap,
+      isAltDuplicated: e.altKey,
     });
   };
 
@@ -217,8 +223,15 @@ export const CanvasWorkspace: React.FC = () => {
     e.stopPropagation();
     if (isSpacePressed) return;
 
+    let targetIds = selectedIds;
+    if (e.altKey) {
+      const dupIds = duplicateObjects(selectedIds, { x: 0, y: 0 });
+      selectMultiple(dupIds);
+      targetIds = dupIds;
+    }
+
     const initialMap: Record<string, { x: number; y: number; width: number; height: number }> = {};
-    for (const id of selectedIds) {
+    for (const id of targetIds) {
       const obj = objects.find((o) => o.id === id);
       if (obj) {
         initialMap[id] = { x: obj.x, y: obj.y, width: obj.width, height: obj.height };
@@ -233,6 +246,7 @@ export const CanvasWorkspace: React.FC = () => {
       canvasStartX: x,
       canvasStartY: y,
       initialObjects: initialMap,
+      isAltDuplicated: e.altKey,
     });
   };
 
@@ -280,8 +294,15 @@ export const CanvasWorkspace: React.FC = () => {
       if (dragState.type === 'create') {
         const minX = Math.min(dragState.canvasStartX, currX);
         const minY = Math.min(dragState.canvasStartY, currY);
-        const width = Math.abs(currX - dragState.canvasStartX);
-        const height = activeTool === 'line' ? 0 : Math.abs(currY - dragState.canvasStartY);
+        let width = Math.abs(currX - dragState.canvasStartX);
+        let height = activeTool === 'line' ? 0 : Math.abs(currY - dragState.canvasStartY);
+
+        // Constrain aspect ratio if Shift is held during creation
+        if (e.shiftKey && activeTool !== 'line') {
+          const maxDim = Math.max(width, height);
+          width = maxDim;
+          height = maxDim;
+        }
 
         setGhostBox({ x: minX, y: minY, width, height });
       } else if (dragState.type === 'marquee') {
@@ -292,7 +313,6 @@ export const CanvasWorkspace: React.FC = () => {
 
         setMarqueeBox({ minX, minY, maxX, maxY });
 
-        // Select objects intersecting with marquee
         const intersectingIds = objects
           .filter((obj) => {
             if (!obj.visible || obj.locked) return false;
@@ -307,13 +327,46 @@ export const CanvasWorkspace: React.FC = () => {
 
         selectMultiple(intersectingIds);
       } else if (dragState.type === 'move' && dragState.initialObjects) {
-        const dx = currX - dragState.canvasStartX;
-        const dy = currY - dragState.canvasStartY;
+        let rawDx = currX - dragState.canvasStartX;
+        let rawDy = currY - dragState.canvasStartY;
+
+        // Shift + Drag: Constrain movement to horizontal or vertical axis
+        if (e.shiftKey) {
+          if (Math.abs(rawDx) > Math.abs(rawDy)) {
+            rawDy = 0;
+          } else {
+            rawDx = 0;
+          }
+        }
+
+        // Smart guides alignment on primary dragged object
+        const firstId = Object.keys(dragState.initialObjects)[0];
+        const firstInit = dragState.initialObjects[firstId];
+
+        let targetDx = rawDx;
+        let targetDy = rawDy;
+
+        if (firstInit && !snapToGrid) {
+          const testRect = {
+            x: firstInit.x + rawDx,
+            y: firstInit.y + rawDy,
+            width: firstInit.width,
+            height: firstInit.height,
+          };
+          const unselectedObjects = objects.filter((o) => !selectedIds.includes(o.id));
+          const snapRes = calculateSmartGuidesAndSnap(testRect, unselectedObjects, true);
+
+          targetDx = snapRes.x - firstInit.x;
+          targetDy = snapRes.y - firstInit.y;
+          setActiveGuides(snapRes.guides);
+        } else {
+          setActiveGuides([]);
+        }
 
         const updates: Record<string, Partial<SceneObject>> = {};
         for (const [id, init] of Object.entries(dragState.initialObjects)) {
-          let newX = init.x + dx;
-          let newY = init.y + dy;
+          let newX = init.x + targetDx;
+          let newY = init.y + targetDy;
           if (snapToGrid) {
             newX = snap(newX, gridSize);
             newY = snap(newY, gridSize);
@@ -337,8 +390,22 @@ export const CanvasWorkspace: React.FC = () => {
         if (handle.includes('s')) newMaxY = Math.max(initialBbox.minY + 10, initialBbox.maxY + dy);
         if (handle.includes('n')) newMinY = Math.min(initialBbox.maxY - 10, initialBbox.minY + dy);
 
-        const newW = newMaxX - newMinX;
-        const newH = newMaxY - newMinY;
+        let newW = newMaxX - newMinX;
+        let newH = newMaxY - newMinY;
+
+        // Shift + Resize: Maintain Aspect Ratio
+        if (e.shiftKey && initialBbox.width > 0 && initialBbox.height > 0) {
+          const ratio = initialBbox.width / initialBbox.height;
+          if (newW / newH > ratio) {
+            newW = newH * ratio;
+          } else {
+            newH = newW / ratio;
+          }
+          if (handle.includes('w')) newMinX = newMaxX - newW;
+          else newMaxX = newMinX + newW;
+          if (handle.includes('n')) newMinY = newMaxY - newH;
+          else newMaxY = newMinY + newH;
+        }
 
         const scaleX = initialBbox.width > 0 ? newW / initialBbox.width : 1;
         const scaleY = initialBbox.height > 0 ? newH / initialBbox.height : 1;
@@ -373,6 +440,8 @@ export const CanvasWorkspace: React.FC = () => {
 
     const handleMouseUp = () => {
       if (!dragState) return;
+
+      setActiveGuides([]);
 
       if (dragState.type === 'create' && ghostBox) {
         const finalW = Math.max(ghostBox.width, 30);
@@ -439,6 +508,27 @@ export const CanvasWorkspace: React.FC = () => {
               parentId: null,
               fill: '#ec4899',
               stroke: '#f472b6',
+              strokeWidth: 0,
+            };
+            break;
+          case 'polygon':
+            newObj = {
+              id,
+              name: `Polygon ${objects.filter((o) => o.type === 'polygon').length + 1}`,
+              type: 'polygon',
+              x: ghostBox.x,
+              y: ghostBox.y,
+              width: finalW,
+              height: finalH,
+              rotation: 0,
+              opacity: 100,
+              visible: true,
+              locked: false,
+              parentId: null,
+              points: 3,
+              isStar: false,
+              fill: '#eab308',
+              stroke: '#fde047',
               strokeWidth: 0,
             };
             break;
@@ -509,8 +599,58 @@ export const CanvasWorkspace: React.FC = () => {
     return 'default';
   };
 
-  // Editing Text helper
   const currentEditingObj = objects.find((o) => o.id === editingTextId && o.type === 'text');
+
+  // Track container dimensions for rulers
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+
+    const file = e.dataTransfer.files[0];
+    if (!file.type.startsWith('image/')) return;
+
+    const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+    try {
+      const { asset, imageObject } = await processImageFile(file, x, y);
+      useDocumentStore.getState().addAsset(asset);
+      addObject(imageObject);
+      select(imageObject.id);
+      useUIStore.getState().setStatusMessage(`Imported image: ${file.name}`);
+    } catch (err) {
+      console.error('Image import failed:', err);
+      useUIStore.getState().setStatusMessage('Failed to import image');
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      canvasX: x,
+      canvasY: y,
+    });
+  };
 
   return (
     <div
@@ -519,7 +659,27 @@ export const CanvasWorkspace: React.FC = () => {
       style={{ cursor: getCursor() }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onContextMenu={handleContextMenu}
     >
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          canvasX={contextMenu.canvasX}
+          canvasY={contextMenu.canvasY}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+      {/* Rulers Overlay */}
+      {showRulers && (
+        <CanvasRulers
+          containerWidth={dimensions.width}
+          containerHeight={dimensions.height}
+        />
+      )}
       {/* Background Infinite Grid */}
       {showGrid && (
         <svg className="canvas-grid-pattern" width="100%" height="100%">
@@ -572,6 +732,37 @@ export const CanvasWorkspace: React.FC = () => {
           />
         ))}
 
+        {/* Smart Guide Overlay Lines */}
+        {activeGuides.map((guide, idx) => (
+          <div
+            key={idx}
+            className="canvas-smart-guide-line"
+            style={
+              guide.orientation === 'vertical'
+                ? {
+                    position: 'absolute',
+                    left: `${guide.position}px`,
+                    top: `${guide.start}px`,
+                    width: `${1 / zoom}px`,
+                    height: `${guide.end - guide.start}px`,
+                    backgroundColor: '#ec4899',
+                    pointerEvents: 'none',
+                    zIndex: 900,
+                  }
+                : {
+                    position: 'absolute',
+                    left: `${guide.start}px`,
+                    top: `${guide.position}px`,
+                    width: `${guide.end - guide.start}px`,
+                    height: `${1 / zoom}px`,
+                    backgroundColor: '#ec4899',
+                    pointerEvents: 'none',
+                    zIndex: 900,
+                  }
+            }
+          />
+        ))}
+
         {/* Selection Bounding Box & Handles */}
         {selectionBbox && selectedObjects.length > 0 && !dragState?.type?.includes('create') && (
           <SelectionOverlay
@@ -598,6 +789,7 @@ export const CanvasWorkspace: React.FC = () => {
               fontWeight: currentEditingObj.fontWeight,
               fontFamily: currentEditingObj.fontFamily,
               color: currentEditingObj.fill,
+              letterSpacing: `${currentEditingObj.letterSpacing || 0}px`,
               background: 'rgba(15, 23, 42, 0.85)',
               border: '1px solid #6366f1',
               borderRadius: '4px',

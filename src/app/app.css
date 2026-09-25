@@ -117,6 +117,42 @@
   text-align: center;
 }
 
+.toolbar-save-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.save-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.save-status-indicator.saved {
+  color: var(--success-color);
+}
+
+.save-status-indicator.saving {
+  color: var(--accent-light);
+}
+
+.save-status-indicator.error {
+  color: var(--danger-color);
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .toolbar-save-btn {
   display: flex;
   align-items: center;

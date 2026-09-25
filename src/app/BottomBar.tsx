@@ -61,14 +61,14 @@ export const BottomBar: React.FC = () => {
         <IconButton
           icon={<ZoomOut size={14} />}
           size="sm"
-          tooltip="Zoom out"
+          tooltip="Zoom out (Ctrl -)"
           onClick={zoomOut}
         />
 
         <span
           className="bottom-zoom-text"
           onClick={() => resetZoom()}
-          title="Click to reset zoom to 100%"
+          title="Click to reset zoom to 100% (Ctrl+0)"
         >
           {Math.round(zoom * 100)}%
         </span>
@@ -76,14 +76,14 @@ export const BottomBar: React.FC = () => {
         <IconButton
           icon={<ZoomIn size={14} />}
           size="sm"
-          tooltip="Zoom in"
+          tooltip="Zoom in (Ctrl +)"
           onClick={zoomIn}
         />
 
         <IconButton
           icon={<Maximize2 size={13} />}
           size="sm"
-          tooltip="Fit all objects on screen"
+          tooltip="Fit all objects on screen (Ctrl+1)"
           onClick={handleFitScreen}
         />
       </div>
@@ -128,6 +128,10 @@ export const BottomBar: React.FC = () => {
                 <kbd>O</kbd>
               </div>
               <div className="shortcut-row">
+                <span className="shortcut-desc">Polygon / Star Tool</span>
+                <kbd>P</kbd>
+              </div>
+              <div className="shortcut-row">
                 <span className="shortcut-desc">Line Tool</span>
                 <kbd>L</kbd>
               </div>
@@ -136,16 +140,52 @@ export const BottomBar: React.FC = () => {
                 <kbd>T</kbd>
               </div>
               <div className="shortcut-row">
+                <span className="shortcut-desc">Duplicate</span>
+                <kbd>Ctrl / ⌘ + D</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Group Selection</span>
+                <kbd>Ctrl / ⌘ + G</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Ungroup</span>
+                <kbd>Ctrl / ⌘ + Shift + G</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Cut / Copy / Paste</span>
+                <kbd>Ctrl + X / C / V</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Precision Move (1px / 10px)</span>
+                <kbd>Arrows / Shift+Arrows</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Constrain Movement</span>
+                <kbd>Shift + Drag</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Alt Duplicate</span>
+                <kbd>Alt + Drag</kbd>
+              </div>
+              <div className="shortcut-row">
                 <span className="shortcut-desc">Pan Canvas</span>
                 <kbd>Space + Drag</kbd>
               </div>
               <div className="shortcut-row">
-                <span className="shortcut-desc">Undo</span>
-                <kbd>Ctrl / ⌘ + Z</kbd>
+                <span className="shortcut-desc">Zoom In / Out</span>
+                <kbd>Ctrl + Plus / Minus</kbd>
               </div>
               <div className="shortcut-row">
-                <span className="shortcut-desc">Redo</span>
-                <kbd>Ctrl / ⌘ + Shift + Z</kbd>
+                <span className="shortcut-desc">Reset Zoom 100%</span>
+                <kbd>Ctrl / ⌘ + 0</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Fit to Screen</span>
+                <kbd>Ctrl / ⌘ + 1</kbd>
+              </div>
+              <div className="shortcut-row">
+                <span className="shortcut-desc">Undo / Redo</span>
+                <kbd>Ctrl+Z / Ctrl+Shift+Z</kbd>
               </div>
               <div className="shortcut-row">
                 <span className="shortcut-desc">Select All</span>

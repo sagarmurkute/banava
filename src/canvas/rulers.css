@@ -1,0 +1,80 @@
+.canvas-rulers-wrapper {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.ruler-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 55;
+}
+
+.ruler-horizontal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+  z-index: 51;
+}
+
+.ruler-tick-h {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--border-medium);
+}
+
+.ruler-tick-h .ruler-tick-label {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.ruler-vertical {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 20px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  overflow: hidden;
+  z-index: 51;
+}
+
+.ruler-tick-v {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: var(--border-medium);
+}
+
+.ruler-tick-v .ruler-tick-label {
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  user-select: none;
+  transform: rotate(-90deg);
+  transform-origin: 0 0;
+}

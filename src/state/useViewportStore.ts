@@ -11,6 +11,7 @@ interface ViewportStoreState extends ViewportState {
   zoomOut: () => void;
   resetZoom: (centerX?: number, centerY?: number) => void;
   fitToScreen: (objects: SceneObject[], containerWidth: number, containerHeight: number) => void;
+  fitSelection: (selectedIds: string[], objects: SceneObject[], containerWidth: number, containerHeight: number) => void;
 }
 
 const initialViewport = loadViewportFromStorage();
@@ -95,6 +96,34 @@ export const useViewportStore = create<ViewportStoreState>((set, get) => ({
     const scaleX = availWidth / bbox.width;
     const scaleY = availHeight / bbox.height;
     const fitZoom = clamp(Math.min(scaleX, scaleY), 0.1, 2.0);
+
+    const centerX = bbox.minX + bbox.width / 2;
+    const centerY = bbox.minY + bbox.height / 2;
+
+    const nextX = containerWidth / 2 - centerX * fitZoom;
+    const nextY = containerHeight / 2 - centerY * fitZoom;
+
+    set({ x: nextX, y: nextY, zoom: fitZoom });
+    saveViewportToStorage({ x: nextX, y: nextY, zoom: fitZoom });
+  },
+
+  fitSelection: (selectedIds: string[], objects: SceneObject[], containerWidth: number, containerHeight: number) => {
+    const targetObjects = objects.filter((o) => selectedIds.includes(o.id) && o.visible);
+    if (targetObjects.length === 0) {
+      get().fitToScreen(objects, containerWidth, containerHeight);
+      return;
+    }
+
+    const bbox = calculateBoundingBox(targetObjects);
+    if (!bbox || bbox.width <= 0 || bbox.height <= 0) return;
+
+    const padding = 80;
+    const availWidth = Math.max(containerWidth - padding * 2, 100);
+    const availHeight = Math.max(containerHeight - padding * 2, 100);
+
+    const scaleX = availWidth / bbox.width;
+    const scaleY = availHeight / bbox.height;
+    const fitZoom = clamp(Math.min(scaleX, scaleY), 0.1, 4.0);
 
     const centerX = bbox.minX + bbox.width / 2;
     const centerY = bbox.minY + bbox.height / 2;

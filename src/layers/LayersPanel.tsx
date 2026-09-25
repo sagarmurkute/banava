@@ -3,8 +3,11 @@ import {
   Frame,
   Square,
   Circle,
+  Triangle,
   Minus,
   Type,
+  Image as ImageIcon,
+  Folder,
   Eye,
   EyeOff,
   Lock,
@@ -14,6 +17,8 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
+  Group,
+  Ungroup,
 } from 'lucide-react';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
@@ -22,24 +27,33 @@ import { IconButton } from '../components/ui/IconButton';
 import './layers.css';
 
 export const LayersPanel: React.FC = () => {
-  const { getActivePage, toggleVisibility, toggleLock, renameObject, deleteObjects, reorderObject } = useDocumentStore();
-  const { selectedIds, select, hoveredId, setHovered } = useSelectionStore();
+  const {
+    getActivePage,
+    toggleVisibility,
+    toggleLock,
+    renameObject,
+    deleteObjects,
+    reorderObject,
+    groupObjects,
+    ungroupObjects,
+  } = useDocumentStore();
+  const { selectedIds, select, selectMultiple, hoveredId, setHovered } = useSelectionStore();
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
-  const [collapsedFrames, setCollapsedFrames] = useState<Record<string, boolean>>({});
+  const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
 
   const activePage = getActivePage();
   const objects = activePage?.objects || [];
 
-  // Group objects by parentId (frames vs roots)
+  // Group objects by parentId (roots are objects with parentId === null)
   const rootObjects = objects.filter((o) => !o.parentId);
-  // Display reversed (top of canvas visual stack is top in layers panel)
+  // Display reversed (top of visual stack is top in layers panel)
   const displayRoots = [...rootObjects].reverse();
 
-  const toggleFrameCollapse = (frameId: string, e: React.MouseEvent) => {
+  const toggleCollapse = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setCollapsedFrames((prev) => ({ ...prev, [frameId]: !prev[frameId] }));
+    setCollapsedItems((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleStartRename = (obj: SceneObject, e: React.MouseEvent) => {
@@ -55,18 +69,39 @@ export const LayersPanel: React.FC = () => {
     setEditingId(null);
   };
 
+  const handleGroupSelected = () => {
+    const groupId = groupObjects(selectedIds);
+    if (groupId) {
+      select(groupId);
+    }
+  };
+
+  const handleUngroupSelected = () => {
+    const selectedGroups = objects.filter((o) => selectedIds.includes(o.id) && (o.type === 'group' || o.type === 'frame'));
+    const released = ungroupObjects(selectedGroups.map((g) => g.id));
+    if (released.length > 0) {
+      selectMultiple(released);
+    }
+  };
+
   const getObjectIcon = (type: ObjectType) => {
     switch (type) {
       case 'frame':
         return <Frame size={14} className="layer-icon frame" />;
+      case 'group':
+        return <Folder size={14} className="layer-icon group" />;
       case 'rectangle':
         return <Square size={14} className="layer-icon rect" />;
       case 'ellipse':
         return <Circle size={14} className="layer-icon ellipse" />;
+      case 'polygon':
+        return <Triangle size={14} className="layer-icon polygon" />;
       case 'line':
         return <Minus size={14} className="layer-icon line" />;
       case 'text':
         return <Type size={14} className="layer-icon text" />;
+      case 'image':
+        return <ImageIcon size={14} className="layer-icon image" />;
     }
   };
 
@@ -74,10 +109,10 @@ export const LayersPanel: React.FC = () => {
     const isSelected = selectedIds.includes(obj.id);
     const isHovered = hoveredId === obj.id;
     const isEditing = editingId === obj.id;
-    const isFrame = obj.type === 'frame';
-    const isCollapsed = collapsedFrames[obj.id];
+    const isContainer = obj.type === 'frame' || obj.type === 'group';
+    const isCollapsed = collapsedItems[obj.id];
 
-    // Children if frame
+    // Children if frame or group
     const children = objects.filter((o) => o.parentId === obj.id);
 
     return (
@@ -90,11 +125,11 @@ export const LayersPanel: React.FC = () => {
           onMouseLeave={() => setHovered(null)}
           onDoubleClick={(e) => handleStartRename(obj, e)}
         >
-          {/* Frame Collapse Arrow */}
-          {isFrame && children.length > 0 ? (
+          {/* Collapse Arrow for Frames / Groups */}
+          {isContainer && children.length > 0 ? (
             <span
               className="layer-collapse-toggle"
-              onClick={(e) => toggleFrameCollapse(obj.id, e)}
+              onClick={(e) => toggleCollapse(obj.id, e)}
             >
               {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
             </span>
@@ -153,8 +188,8 @@ export const LayersPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Render Nested Frame Children */}
-        {isFrame && !isCollapsed && children.length > 0 && (
+        {/* Render Nested Children */}
+        {isContainer && !isCollapsed && children.length > 0 && (
           <div className="layer-children-tree">
             {[...children].reverse().map((child) => renderLayerItem(child, depth + 1))}
           </div>
@@ -168,28 +203,46 @@ export const LayersPanel: React.FC = () => {
       {/* Header Controls for selected layer */}
       <div className="layers-panel-toolbar">
         <span className="layers-header-title">Layers ({objects.length})</span>
-        {selectedIds.length > 0 && (
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
+          {selectedIds.length >= 2 && (
             <IconButton
-              icon={<ArrowUp size={13} />}
+              icon={<Group size={13} />}
               size="sm"
-              tooltip="Bring forward"
-              onClick={() => reorderObject(selectedIds[0], 'up')}
+              tooltip="Group Selection (Ctrl+G)"
+              onClick={handleGroupSelected}
             />
+          )}
+          {selectedIds.some((id) => objects.find((o) => o.id === id)?.type === 'group') && (
             <IconButton
-              icon={<ArrowDown size={13} />}
+              icon={<Ungroup size={13} />}
               size="sm"
-              tooltip="Send backward"
-              onClick={() => reorderObject(selectedIds[0], 'down')}
+              tooltip="Ungroup Selection (Ctrl+Shift+G)"
+              onClick={handleUngroupSelected}
             />
-            <IconButton
-              icon={<Trash2 size={13} />}
-              size="sm"
-              tooltip="Delete selected"
-              onClick={() => deleteObjects(selectedIds)}
-            />
-          </div>
-        )}
+          )}
+          {selectedIds.length > 0 && (
+            <>
+              <IconButton
+                icon={<ArrowUp size={13} />}
+                size="sm"
+                tooltip="Bring forward"
+                onClick={() => reorderObject(selectedIds[0], 'up')}
+              />
+              <IconButton
+                icon={<ArrowDown size={13} />}
+                size="sm"
+                tooltip="Send backward"
+                onClick={() => reorderObject(selectedIds[0], 'down')}
+              />
+              <IconButton
+                icon={<Trash2 size={13} />}
+                size="sm"
+                tooltip="Delete selected"
+                onClick={() => deleteObjects(selectedIds)}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Layers List */}

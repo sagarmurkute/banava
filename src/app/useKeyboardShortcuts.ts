@@ -2,17 +2,21 @@ import { useEffect } from 'react';
 import { useToolStore } from '../state/useToolStore';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
+import { useViewportStore } from '../state/useViewportStore';
 import { useUIStore } from '../state/useUIStore';
+import { useClipboardStore } from '../state/useClipboardStore';
+import type { SceneObject } from '../types/document';
 
 export function useKeyboardShortcuts() {
   const { setActiveTool, setIsSpacePressed } = useToolStore();
-  const { undo, redo, deleteObjects, save, getActivePage } = useDocumentStore();
-  const { selectedIds, deselectAll, selectMultiple } = useSelectionStore();
+  const { undo, redo, deleteObjects, save, getActivePage, duplicateObjects, updateObjects, commitHistory } = useDocumentStore();
+  const { selectedIds, deselectAll, selectMultiple, select } = useSelectionStore();
+  const { zoomIn, zoomOut, resetZoom, fitToScreen } = useViewportStore();
   const { setStatusMessage } = useUIStore();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if user is typing in an input or textarea
+      // Check if user is typing in an input, textarea or contenteditable
       const target = e.target as HTMLElement;
       const isInput =
         target.tagName === 'INPUT' ||
@@ -20,7 +24,6 @@ export function useKeyboardShortcuts() {
         target.isContentEditable;
 
       if (isInput) {
-        // Allow escape to blur input
         if (e.key === 'Escape') {
           target.blur();
         }
@@ -28,11 +31,89 @@ export function useKeyboardShortcuts() {
       }
 
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      const page = getActivePage();
+      const objects = page?.objects || [];
 
       // Space bar for panning
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         setIsSpacePressed(true);
+        return;
+      }
+
+      // Clipboard actions: Cut (Ctrl+X), Copy (Ctrl+C), Paste (Ctrl+V)
+      if (isCtrlOrMeta && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        const selectedObjs = objects.filter((o) => selectedIds.includes(o.id));
+        useClipboardStore.getState().copy(selectedObjs);
+        return;
+      }
+
+      if (isCtrlOrMeta && (e.key === 'x' || e.key === 'X')) {
+        e.preventDefault();
+        const selectedObjs = objects.filter((o) => selectedIds.includes(o.id));
+        useClipboardStore.getState().cut(selectedObjs);
+        return;
+      }
+
+      if (isCtrlOrMeta && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        useClipboardStore.getState().paste();
+        return;
+      }
+      if (isCtrlOrMeta && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          const newIds = duplicateObjects(selectedIds, { x: 20, y: 20 });
+          selectMultiple(newIds);
+          setStatusMessage(`Duplicated ${newIds.length} object(s)`);
+        }
+        return;
+      }
+
+      // Group / Ungroup (Ctrl/Cmd + G, Ctrl/Cmd + Shift + G)
+      if (isCtrlOrMeta && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const selectedGroups = objects.filter((o) => selectedIds.includes(o.id) && (o.type === 'group' || o.type === 'frame'));
+          const released = useDocumentStore.getState().ungroupObjects(selectedGroups.map((g) => g.id));
+          if (released.length > 0) {
+            selectMultiple(released);
+            setStatusMessage('Ungrouped objects');
+          }
+        } else if (selectedIds.length >= 2) {
+          const groupId = useDocumentStore.getState().groupObjects(selectedIds);
+          if (groupId) {
+            select(groupId);
+            setStatusMessage('Grouped objects');
+          }
+        }
+        return;
+      }
+
+      // Zoom Shortcuts
+      if (isCtrlOrMeta && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (isCtrlOrMeta && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        zoomOut();
+        return;
+      }
+      if (isCtrlOrMeta && e.key === '0') {
+        e.preventDefault();
+        resetZoom();
+        setStatusMessage('Zoom reset to 100%');
+        return;
+      }
+      if (isCtrlOrMeta && e.key === '1') {
+        e.preventDefault();
+        const w = window.innerWidth - 260 - 280;
+        const h = window.innerHeight - 48 - 32;
+        fitToScreen(objects, w, h);
+        setStatusMessage('Fit to screen');
         return;
       }
 
@@ -60,14 +141,13 @@ export function useKeyboardShortcuts() {
       if (isCtrlOrMeta && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         save();
-        setStatusMessage('Document saved to local storage.');
+        setStatusMessage('Document saved');
         return;
       }
 
       // Select All
       if (isCtrlOrMeta && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
-        const page = getActivePage();
         if (page) {
           const selectableIds = page.objects.filter((o) => o.visible && !o.locked).map((o) => o.id);
           selectMultiple(selectableIds);
@@ -94,6 +174,32 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      // Precision Arrow Keys Movement
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedIds.length > 0) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        let dx = 0;
+        let dy = 0;
+
+        if (e.key === 'ArrowUp') dy = -step;
+        if (e.key === 'ArrowDown') dy = step;
+        if (e.key === 'ArrowLeft') dx = -step;
+        if (e.key === 'ArrowRight') dx = step;
+
+        const updates: Record<string, Partial<SceneObject>> = {};
+        for (const id of selectedIds) {
+          const obj = objects.find((o) => o.id === id);
+          if (obj && !obj.locked) {
+            updates[id] = { x: obj.x + dx, y: obj.y + dy };
+          }
+        }
+        if (Object.keys(updates).length > 0) {
+          updateObjects(updates, false);
+          commitHistory();
+        }
+        return;
+      }
+
       // Single key tool shortcuts
       switch (e.key.toLowerCase()) {
         case 'v':
@@ -107,6 +213,9 @@ export function useKeyboardShortcuts() {
           break;
         case 'o':
           setActiveTool('ellipse');
+          break;
+        case 'p':
+          setActiveTool('polygon');
           break;
         case 'l':
           setActiveTool('line');
@@ -141,6 +250,14 @@ export function useKeyboardShortcuts() {
     selectedIds,
     deselectAll,
     selectMultiple,
+    select,
+    duplicateObjects,
+    updateObjects,
+    commitHistory,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    fitToScreen,
     setStatusMessage,
   ]);
 }

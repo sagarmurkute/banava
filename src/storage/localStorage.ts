@@ -1,24 +1,60 @@
 import type { DocumentModel, ViewportState } from '../types/document';
 import { createDefaultDocument, CURRENT_DOCUMENT_VERSION } from '../document/defaultDocument';
 
-const STORAGE_KEY_DOC = 'sagar_design_document_v1';
-const STORAGE_KEY_VIEWPORT = 'sagar_design_viewport_v1';
+const STORAGE_KEY_DOC = 'sagar_design_document_v2';
+const STORAGE_KEY_VIEWPORT = 'sagar_design_viewport_v2';
 
-export function saveDocumentToStorage(doc: DocumentModel): void {
+let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function saveDocumentToStorage(
+  doc: DocumentModel,
+  onStatusChange?: (status: 'saving' | 'saved' | 'error') => void
+): void {
+  if (onStatusChange) onStatusChange('saving');
+
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+  }
+
+  saveDebounceTimer = setTimeout(() => {
+    try {
+      const sanitizedDoc: DocumentModel = {
+        ...doc,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(STORAGE_KEY_DOC, JSON.stringify(sanitizedDoc));
+      if (onStatusChange) onStatusChange('saved');
+    } catch (err) {
+      console.error('Failed to save document to localStorage:', err);
+      if (onStatusChange) onStatusChange('error');
+    }
+  }, 400);
+}
+
+export function saveDocumentImmediate(doc: DocumentModel): boolean {
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+  }
   try {
-    const serialized = JSON.stringify({
+    const sanitizedDoc: DocumentModel = {
       ...doc,
       updatedAt: Date.now(),
-    });
-    localStorage.setItem(STORAGE_KEY_DOC, serialized);
+    };
+    localStorage.setItem(STORAGE_KEY_DOC, JSON.stringify(sanitizedDoc));
+    return true;
   } catch (err) {
-    console.error('Failed to save document to localStorage:', err);
+    console.error('Immediate save failed:', err);
+    return false;
   }
 }
 
 export function loadDocumentFromStorage(): DocumentModel {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_DOC);
+    let raw = localStorage.getItem(STORAGE_KEY_DOC);
+    if (!raw) {
+      // Check for v1 migration
+      raw = localStorage.getItem('sagar_design_document_v1');
+    }
     if (!raw) return createDefaultDocument();
 
     const parsed = JSON.parse(raw);
@@ -26,14 +62,15 @@ export function loadDocumentFromStorage(): DocumentModel {
       return createDefaultDocument();
     }
 
-    // Schema version check and migration hook
-    if (!parsed.version || parsed.version < CURRENT_DOCUMENT_VERSION) {
-      parsed.version = CURRENT_DOCUMENT_VERSION;
-    }
-
     if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
       return createDefaultDocument();
     }
+
+    if (!parsed.assets || typeof parsed.assets !== 'object') {
+      parsed.assets = {};
+    }
+
+    parsed.version = CURRENT_DOCUMENT_VERSION;
 
     if (!parsed.activePageId || !parsed.pages.some((p: { id: string }) => p.id === parsed.activePageId)) {
       parsed.activePageId = parsed.pages[0].id;
@@ -41,7 +78,7 @@ export function loadDocumentFromStorage(): DocumentModel {
 
     return parsed as DocumentModel;
   } catch (err) {
-    console.warn('Error loading document from localStorage, falling back to default:', err);
+    console.warn('Error loading document from storage, recovering with default template:', err);
     return createDefaultDocument();
   }
 }
@@ -56,7 +93,10 @@ export function saveViewportToStorage(viewport: ViewportState): void {
 
 export function loadViewportFromStorage(): ViewportState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_VIEWPORT);
+    let raw = localStorage.getItem(STORAGE_KEY_VIEWPORT);
+    if (!raw) {
+      raw = localStorage.getItem('sagar_design_viewport_v1');
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
       if (
@@ -73,7 +113,6 @@ export function loadViewportFromStorage(): ViewportState {
     console.warn('Error loading viewport from localStorage:', err);
   }
 
-  // Default viewport centered nicely
   return {
     x: 200,
     y: 80,

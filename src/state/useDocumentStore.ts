@@ -1,10 +1,37 @@
 import { create } from 'zustand';
-import type { DocumentModel, Page, SceneObject, AlignmentType, Asset, SaveStatus, FrameObject } from '../types/document';
+import type {
+  DocumentModel,
+  Page,
+  SceneObject,
+  AlignmentType,
+  Asset,
+  SaveStatus,
+  FrameObject,
+  ColorStyle,
+  TextStyle,
+  EffectStyle,
+  Variable,
+  VariableType,
+  ComponentInstanceObject,
+} from '../types/document';
 import { loadDocumentFromStorage, saveDocumentToStorage, saveDocumentImmediate } from '../storage/localStorage';
 import { generateId } from '../utils/id';
 import { calculateBoundingBox } from '../utils/geometry';
 import { recomputePageLayout } from '../layout/layoutEngine';
 import { applyFrameResizeConstraints } from '../layout/constraints';
+import {
+  createMasterComponent,
+  createComponentInstance,
+  syncInstancesFromMaster,
+  detachComponentInstance,
+  switchInstanceVariant,
+} from '../system/componentEngine';
+import {
+  createColorStyle as makeColorStyle,
+  createTextStyle as makeTextStyle,
+  createEffectStyle as makeEffectStyle,
+} from '../system/styleEngine';
+import { createVariable as makeVariable } from '../system/variableEngine';
 
 interface DocumentStoreState {
   doc: DocumentModel;
@@ -38,6 +65,32 @@ interface DocumentStoreState {
   // Layout Engine
   recomputeLayout: () => void;
   resizeFrameWithConstraints: (frameId: string, newWidth: number, newHeight: number) => void;
+
+  // Phase 4: Component Actions
+  createComponent: (objectId: string, name?: string, category?: string) => string;
+  createInstance: (componentId: string, x: number, y: number, parentId?: string | null) => string;
+  overrideInstanceProperty: (instanceId: string, targetMasterId: string, property: string, value: any) => void;
+  resetInstanceOverride: (instanceId: string, targetMasterId: string, property?: string) => void;
+  resetAllInstanceOverrides: (instanceId: string) => void;
+  detachInstance: (instanceId: string) => void;
+  switchVariant: (instanceId: string, variantProps: Record<string, string>) => void;
+
+  // Phase 4: Style Actions
+  createColorStyle: (name: string, color: string, opacity?: number, description?: string) => string;
+  updateColorStyle: (id: string, updates: Partial<ColorStyle>) => void;
+  deleteColorStyle: (id: string) => void;
+  createTextStyle: (name: string, params: Omit<TextStyle, 'id' | 'name'>) => string;
+  updateTextStyle: (id: string, updates: Partial<TextStyle>) => void;
+  deleteTextStyle: (id: string) => void;
+  createEffectStyle: (name: string, params: Omit<EffectStyle, 'id' | 'name'>) => string;
+  updateEffectStyle: (id: string, updates: Partial<EffectStyle>) => void;
+  deleteEffectStyle: (id: string) => void;
+
+  // Phase 4: Variable / Design Token Actions
+  createVariable: (name: string, type: VariableType, valuesByMode: Record<string, any>, collectionId?: string, description?: string) => string;
+  updateVariable: (id: string, updates: Partial<Variable>) => void;
+  deleteVariable: (id: string) => void;
+  setCollectionActiveMode: (collectionId: string, modeId: string) => void;
 
   // Asset actions
   addAsset: (asset: Asset) => void;
@@ -95,10 +148,8 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
 
   setActivePage: (pageId: string) => {
     set((state) => {
-      const pageExists = state.doc.pages.some((p) => p.id === pageId);
-      if (!pageExists) return state;
-
-      const nextDoc = { ...state.doc, activePageId: pageId, updatedAt: Date.now() };
+      if (state.doc.activePageId === pageId) return state;
+      const nextDoc = { ...state.doc, activePageId: pageId };
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return { doc: nextDoc };
     });
@@ -113,14 +164,12 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         name: name || `Page ${pageNumber}`,
         objects: [],
       };
-
       const nextDoc = {
         ...state.doc,
         pages: [...state.doc.pages, newPage],
         activePageId: newPageId,
         updatedAt: Date.now(),
       };
-
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
@@ -150,18 +199,15 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
   deletePage: (pageId: string) => {
     set((state) => {
       if (state.doc.pages.length <= 1) return state;
-
       const nextPages = state.doc.pages.filter((p) => p.id !== pageId);
       const nextActiveId =
         state.doc.activePageId === pageId ? nextPages[0].id : state.doc.activePageId;
-
       const nextDoc = {
         ...state.doc,
         pages: nextPages,
         activePageId: nextActiveId,
         updatedAt: Date.now(),
       };
-
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
       return {
         past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
@@ -176,11 +222,10 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       const targetPageId = pageId || state.doc.activePageId;
       const nextPages = state.doc.pages.map((p) => {
         if (p.id === targetPageId) {
-          const updatedPage = recomputePageLayout({
+          return recomputePageLayout({
             ...p,
             objects: [...p.objects, object],
           });
-          return updatedPage;
         }
         return p;
       });
@@ -199,6 +244,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
     set((state) => {
       const activeId = state.doc.activePageId;
       let hasChange = false;
+      let affectedComponentId: string | undefined;
 
       const nextPages = state.doc.pages.map((p) => {
         if (p.id !== activeId) return p;
@@ -206,18 +252,26 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         const nextObjects = p.objects.map((obj) => {
           if (obj.id === id) {
             hasChange = true;
+            if (obj.isComponent) {
+              affectedComponentId = obj.componentId;
+            }
             return { ...obj, ...updates } as SceneObject;
           }
           return obj;
         });
 
-        // Run layout engine
         return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       if (!hasChange) return state;
 
-      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      let nextDoc: DocumentModel = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+
+      // Sync instances if master component changed
+      if (affectedComponentId) {
+        nextDoc = syncInstancesFromMaster(nextDoc, affectedComponentId);
+      }
+
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
@@ -233,12 +287,16 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
   updateObjects: (updates: Record<string, Partial<SceneObject>>, recordHistory = false) => {
     set((state) => {
       const activeId = state.doc.activePageId;
+      const affectedComponents = new Set<string>();
 
       const nextPages = state.doc.pages.map((p) => {
         if (p.id !== activeId) return p;
 
         const nextObjects = p.objects.map((obj) => {
           if (updates[obj.id]) {
+            if (obj.isComponent && obj.componentId) {
+              affectedComponents.add(obj.componentId);
+            }
             return { ...obj, ...updates[obj.id] } as SceneObject;
           }
           return obj;
@@ -247,7 +305,12 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
-      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      let nextDoc: DocumentModel = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+
+      affectedComponents.forEach((cId) => {
+        nextDoc = syncInstancesFromMaster(nextDoc, cId);
+      });
+
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
 
       return {
@@ -264,12 +327,25 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
     if (ids.length === 0) return;
     set((state) => {
       const activeId = state.doc.activePageId;
-      const idsSet = new Set(ids);
+      const idsToDelete = new Set<string>(ids);
 
       const nextPages = state.doc.pages.map((p) => {
         if (p.id !== activeId) return p;
-        const remaining = p.objects.filter((obj) => !idsSet.has(obj.id) && (!obj.parentId || !idsSet.has(obj.parentId)));
-        return recomputePageLayout({ ...p, objects: remaining });
+
+        // Cascade delete children
+        const findChildren = (parentId: string) => {
+          p.objects.forEach((o) => {
+            if (o.parentId === parentId && !idsToDelete.has(o.id)) {
+              idsToDelete.add(o.id);
+              findChildren(o.id);
+            }
+          });
+        };
+
+        ids.forEach((id) => findChildren(id));
+
+        const filtered = p.objects.filter((o) => !idsToDelete.has(o.id));
+        return recomputePageLayout({ ...p, objects: filtered });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -475,7 +551,6 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
 
   ungroupObjects: (groupIds: string[]) => {
     const releasedIds: string[] = [];
-
     set((state) => {
       const activeId = state.doc.activePageId;
       const groupIdsSet = new Set(groupIds);
@@ -729,6 +804,588 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         future: [],
         doc: nextDoc,
       };
+    });
+  },
+
+  // --- Phase 4 Design System Actions ---
+
+  createComponent: (objectId: string, name?: string, category = 'Components') => {
+    const { doc, getActivePage } = get();
+    const activePage = getActivePage();
+    const { nextDoc, componentId } = createMasterComponent(
+      doc,
+      activePage.id,
+      objectId,
+      name,
+      category
+    );
+
+    set((state) => {
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return componentId;
+  },
+
+  createInstance: (componentId: string, x: number, y: number, parentId: string | null = null) => {
+    const { doc, getActivePage } = get();
+    const activePage = getActivePage();
+    const { nextDoc, instanceId } = createComponentInstance(
+      doc,
+      activePage.id,
+      componentId,
+      x,
+      y,
+      parentId
+    );
+
+    set((state) => {
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return instanceId;
+  },
+
+  overrideInstanceProperty: (
+    instanceId: string,
+    targetMasterId: string,
+    property: string,
+    value: any
+  ) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const instance = p.objects.find((o) => o.id === instanceId) as ComponentInstanceObject | undefined;
+        if (!instance) return p;
+
+        const currentOverrides = instance.overrides || {};
+        const layerOverrides = currentOverrides[targetMasterId] || {};
+        const nextOverrides = {
+          ...currentOverrides,
+          [targetMasterId]: {
+            ...layerOverrides,
+            [property]: value,
+          },
+        };
+
+        const updatedObjects = p.objects.map((obj) => {
+          if (obj.id === instanceId) {
+            return { ...obj, overrides: nextOverrides } as SceneObject;
+          }
+          if (obj.masterObjectId === targetMasterId || obj.id === targetMasterId) {
+            return { ...obj, [property]: value } as SceneObject;
+          }
+          return obj;
+        });
+
+        return recomputePageLayout({ ...p, objects: updatedObjects });
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  resetInstanceOverride: (instanceId: string, targetMasterId: string, property?: string) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const instance = p.objects.find((o) => o.id === instanceId) as ComponentInstanceObject | undefined;
+        if (!instance || !instance.overrides) return p;
+
+        const currentOverrides = { ...instance.overrides };
+        if (property && currentOverrides[targetMasterId]) {
+          delete currentOverrides[targetMasterId][property];
+          if (Object.keys(currentOverrides[targetMasterId]).length === 0) {
+            delete currentOverrides[targetMasterId];
+          }
+        } else {
+          delete currentOverrides[targetMasterId];
+        }
+
+        const updatedObjects = p.objects.map((obj) =>
+          obj.id === instanceId ? ({ ...obj, overrides: currentOverrides } as SceneObject) : obj
+        );
+
+        return recomputePageLayout({ ...p, objects: updatedObjects });
+      });
+
+      let nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      const instObj = state.getObjectById(instanceId) as ComponentInstanceObject | undefined;
+      if (instObj?.componentId) {
+        nextDoc = syncInstancesFromMaster(nextDoc, instObj.componentId);
+      }
+
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  resetAllInstanceOverrides: (instanceId: string) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const instObj = state.getObjectById(instanceId) as ComponentInstanceObject | undefined;
+      if (!instObj?.componentId) return state;
+
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+        const updatedObjects = p.objects.map((obj) =>
+          obj.id === instanceId ? ({ ...obj, overrides: {} } as SceneObject) : obj
+        );
+        return recomputePageLayout({ ...p, objects: updatedObjects });
+      });
+
+      let nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      nextDoc = syncInstancesFromMaster(nextDoc, instObj.componentId);
+
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  detachInstance: (instanceId: string) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextDoc = detachComponentInstance(state.doc, activeId, instanceId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  switchVariant: (instanceId: string, variantProps: Record<string, string>) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextDoc = switchInstanceVariant(state.doc, activeId, instanceId, variantProps);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  // Styles Actions
+  createColorStyle: (name: string, color: string, opacity = 100, description?: string) => {
+    const style = makeColorStyle(name, color, opacity, description);
+    set((state) => {
+      const currentStyles = state.doc.styles || { colorStyles: {}, textStyles: {}, effectStyles: {} };
+      const nextStyles = {
+        ...currentStyles,
+        colorStyles: { ...currentStyles.colorStyles, [style.id]: style },
+      };
+      const nextDoc = { ...state.doc, styles: nextStyles, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+    return style.id;
+  },
+
+  updateColorStyle: (id: string, updates: Partial<ColorStyle>) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles || !currentStyles.colorStyles[id]) return state;
+
+      const updatedStyle = { ...currentStyles.colorStyles[id], ...updates };
+      const nextStyles = {
+        ...currentStyles,
+        colorStyles: { ...currentStyles.colorStyles, [id]: updatedStyle },
+      };
+
+      // Cascade update to referencing objects
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          let updatedObj = obj;
+          if (obj.fillStyleId === id && updates.color) {
+            updatedObj = { ...updatedObj, fill: updates.color, opacity: updates.opacity ?? updatedObj.opacity };
+          }
+          if (obj.strokeStyleId === id && updates.color) {
+            updatedObj = { ...updatedObj, stroke: updates.color, strokeOpacity: updates.opacity ?? (updatedObj as any).strokeOpacity };
+          }
+          return updatedObj;
+        });
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = { ...state.doc, styles: nextStyles, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteColorStyle: (id: string) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles) return state;
+
+      const nextColorStyles = { ...currentStyles.colorStyles };
+      delete nextColorStyles[id];
+
+      // Remove style references from scene objects safely (preserve raw color)
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          let updatedObj = obj;
+          if (obj.fillStyleId === id) {
+            const copy = { ...updatedObj };
+            delete copy.fillStyleId;
+            updatedObj = copy;
+          }
+          if (obj.strokeStyleId === id) {
+            const copy = { ...updatedObj };
+            delete copy.strokeStyleId;
+            updatedObj = copy;
+          }
+          return updatedObj;
+        });
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = {
+        ...state.doc,
+        styles: { ...currentStyles, colorStyles: nextColorStyles },
+        pages: nextPages,
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  createTextStyle: (name: string, params: Omit<TextStyle, 'id' | 'name'>) => {
+    const style = makeTextStyle(name, params);
+    set((state) => {
+      const currentStyles = state.doc.styles || { colorStyles: {}, textStyles: {}, effectStyles: {} };
+      const nextStyles = {
+        ...currentStyles,
+        textStyles: { ...currentStyles.textStyles, [style.id]: style },
+      };
+      const nextDoc = { ...state.doc, styles: nextStyles, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+    return style.id;
+  },
+
+  updateTextStyle: (id: string, updates: Partial<TextStyle>) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles || !currentStyles.textStyles[id]) return state;
+
+      const updatedStyle = { ...currentStyles.textStyles[id], ...updates };
+      const nextStyles = {
+        ...currentStyles,
+        textStyles: { ...currentStyles.textStyles, [id]: updatedStyle },
+      };
+
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          if (obj.type === 'text' && obj.textStyleId === id) {
+            return {
+              ...obj,
+              fontFamily: updates.fontFamily ?? (obj as any).fontFamily,
+              fontSize: updates.fontSize ?? (obj as any).fontSize,
+              fontWeight: updates.fontWeight ?? (obj as any).fontWeight,
+              lineHeight: updates.lineHeight ?? (obj as any).lineHeight,
+              letterSpacing: updates.letterSpacing ?? (obj as any).letterSpacing,
+            };
+          }
+          return obj;
+        });
+        return recomputePageLayout({ ...p, objects: nextObjects });
+      });
+
+      const nextDoc = { ...state.doc, styles: nextStyles, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteTextStyle: (id: string) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles) return state;
+
+      const nextTextStyles = { ...currentStyles.textStyles };
+      delete nextTextStyles[id];
+
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          if (obj.textStyleId === id) {
+            const copy = { ...obj };
+            delete copy.textStyleId;
+            return copy as SceneObject;
+          }
+          return obj;
+        });
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = {
+        ...state.doc,
+        styles: { ...currentStyles, textStyles: nextTextStyles },
+        pages: nextPages,
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  createEffectStyle: (name: string, params: Omit<EffectStyle, 'id' | 'name'>) => {
+    const style = makeEffectStyle(name, params);
+    set((state) => {
+      const currentStyles = state.doc.styles || { colorStyles: {}, textStyles: {}, effectStyles: {} };
+      const nextStyles = {
+        ...currentStyles,
+        effectStyles: { ...currentStyles.effectStyles, [style.id]: style },
+      };
+      const nextDoc = { ...state.doc, styles: nextStyles, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+    return style.id;
+  },
+
+  updateEffectStyle: (id: string, updates: Partial<EffectStyle>) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles || !currentStyles.effectStyles[id]) return state;
+
+      const updated = { ...currentStyles.effectStyles[id], ...updates };
+      const nextStyles = {
+        ...currentStyles,
+        effectStyles: { ...currentStyles.effectStyles, [id]: updated },
+      };
+
+      const nextDoc = { ...state.doc, styles: nextStyles, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteEffectStyle: (id: string) => {
+    set((state) => {
+      const currentStyles = state.doc.styles;
+      if (!currentStyles) return state;
+
+      const nextEffectStyles = { ...currentStyles.effectStyles };
+      delete nextEffectStyles[id];
+
+      const nextDoc = {
+        ...state.doc,
+        styles: { ...currentStyles, effectStyles: nextEffectStyles },
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  // Variables Actions
+  createVariable: (
+    name: string,
+    type: VariableType,
+    valuesByMode: Record<string, any>,
+    collectionId = 'col_tokens_default',
+    description?: string
+  ) => {
+    const currentVars = state.doc.variables || {
+      variables: {},
+      collections: {},
+      activeModeIdByCollection: {},
+    };
+    const { nextState, newVariable } = makeVariable(
+      name,
+      type,
+      valuesByMode,
+      collectionId,
+      currentVars,
+      description
+    );
+
+    set((state) => {
+      const nextDoc = { ...state.doc, variables: nextState, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return newVariable.id;
+  },
+
+  updateVariable: (id: string, updates: Partial<Variable>) => {
+    set((state) => {
+      const currentVars = state.doc.variables;
+      if (!currentVars || !currentVars.variables[id]) return state;
+
+      const updated = { ...currentVars.variables[id], ...updates };
+      const nextVariablesState = {
+        ...currentVars,
+        variables: { ...currentVars.variables, [id]: updated },
+      };
+
+      // Cascade variable value changes (e.g. Color / Spacing) to referencing objects
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          let updatedObj = obj;
+          if (obj.fillVariableId === id) {
+            const val = Object.values(updated.valuesByMode)[0];
+            if (typeof val === 'string') updatedObj = { ...updatedObj, fill: val };
+          }
+          if (obj.strokeVariableId === id) {
+            const val = Object.values(updated.valuesByMode)[0];
+            if (typeof val === 'string') updatedObj = { ...updatedObj, stroke: val };
+          }
+          return updatedObj;
+        });
+        return recomputePageLayout({ ...p, objects: nextObjects });
+      });
+
+      const nextDoc = {
+        ...state.doc,
+        variables: nextVariablesState,
+        pages: nextPages,
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteVariable: (id: string) => {
+    set((state) => {
+      const currentVars = state.doc.variables;
+      if (!currentVars) return state;
+
+      const nextVars = { ...currentVars.variables };
+      delete nextVars[id];
+
+      const nextDoc = {
+        ...state.doc,
+        variables: { ...currentVars, variables: nextVars },
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  setCollectionActiveMode: (collectionId: string, modeId: string) => {
+    set((state) => {
+      const currentVars = state.doc.variables;
+      if (!currentVars) return state;
+
+      const nextModes = {
+        ...currentVars.activeModeIdByCollection,
+        [collectionId]: modeId,
+      };
+
+      const nextVariablesState = {
+        ...currentVars,
+        activeModeIdByCollection: nextModes,
+      };
+
+      // Recompute page layout and style values for the new active mode
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((obj) => {
+          let updatedObj = obj;
+          if (obj.fillVariableId) {
+            const v = currentVars.variables[obj.fillVariableId];
+            if (v && v.valuesByMode[modeId] !== undefined) {
+              updatedObj = { ...updatedObj, fill: v.valuesByMode[modeId] };
+            }
+          }
+          return updatedObj;
+        });
+        return recomputePageLayout({ ...p, objects: nextObjects });
+      });
+
+      const nextDoc = {
+        ...state.doc,
+        variables: nextVariablesState,
+        pages: nextPages,
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
     });
   },
 

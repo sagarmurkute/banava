@@ -1,5 +1,7 @@
 import type { DocumentModel, ViewportState } from '../types/document';
 import { createDefaultDocument, CURRENT_DOCUMENT_VERSION } from '../document/defaultDocument';
+import { createDefaultStyles } from '../system/styleEngine';
+import { createDefaultVariables } from '../system/variableEngine';
 
 const STORAGE_KEY_DOC = 'sagar_design_document_v2';
 const STORAGE_KEY_VIEWPORT = 'sagar_design_viewport_v2';
@@ -52,7 +54,6 @@ export function loadDocumentFromStorage(): DocumentModel {
   try {
     let raw = localStorage.getItem(STORAGE_KEY_DOC);
     if (!raw) {
-      // Check for v1 migration
       raw = localStorage.getItem('sagar_design_document_v1');
     }
     if (!raw) return createDefaultDocument();
@@ -68,6 +69,19 @@ export function loadDocumentFromStorage(): DocumentModel {
 
     if (!parsed.assets || typeof parsed.assets !== 'object') {
       parsed.assets = {};
+    }
+
+    if (!parsed.components || typeof parsed.components !== 'object') {
+      parsed.components = {};
+    }
+    if (!parsed.componentSets || typeof parsed.componentSets !== 'object') {
+      parsed.componentSets = {};
+    }
+    if (!parsed.styles || typeof parsed.styles !== 'object') {
+      parsed.styles = createDefaultStyles();
+    }
+    if (!parsed.variables || typeof parsed.variables !== 'object') {
+      parsed.variables = createDefaultVariables();
     }
 
     parsed.version = CURRENT_DOCUMENT_VERSION;

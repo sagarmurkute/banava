@@ -25,6 +25,10 @@ import { SelectInput } from '../components/ui/SelectInput';
 import { PanelSection } from '../components/ui/PanelSection';
 import { IconButton } from '../components/ui/IconButton';
 import { calculateBoundingBox } from '../utils/geometry';
+import { AutoLayoutInspector } from './AutoLayoutInspector';
+import { ConstraintsInspector } from './ConstraintsInspector';
+import { SizingInspector } from './SizingInspector';
+import { LayoutGridInspector } from './LayoutGridInspector';
 import type {
   RectangleObject,
   FrameObject,
@@ -207,6 +211,11 @@ export const RightInspector: React.FC = () => {
     updateObject(target.id, updates as Partial<SceneObject>, true);
   };
 
+  const parent = target.parentId ? objects.find((o) => o.id === target.parentId) : null;
+  const isParentFrame = parent && parent.type === 'frame';
+  const isParentAutoLayout = isParentFrame && (parent as FrameObject).layoutMode && (parent as FrameObject).layoutMode !== 'none';
+  const isTargetFrame = target.type === 'frame';
+
   return (
     <aside className="app-right-inspector">
       <div className="inspector-header">
@@ -292,6 +301,18 @@ export const RightInspector: React.FC = () => {
           )}
         </div>
       </PanelSection>
+
+      {/* Auto Layout section for frames */}
+      {isTargetFrame && <AutoLayoutInspector target={target as FrameObject} />}
+
+      {/* Sizing & limits inspector */}
+      {(isTargetFrame || isParentFrame) && <SizingInspector target={target} />}
+
+      {/* Constraints inspector for objects in non-Auto-Layout frames */}
+      {isParentFrame && !isParentAutoLayout && <ConstraintsInspector target={target} />}
+
+      {/* Layout Grid Inspector for Frames */}
+      {isTargetFrame && <LayoutGridInspector target={target as FrameObject} />}
 
       {/* Polygon Specific Settings */}
       {target.type === 'polygon' && (
@@ -492,7 +513,7 @@ export const RightInspector: React.FC = () => {
       )}
 
       {/* Frame Clips Content */}
-      {target.type === 'frame' && (
+      {isTargetFrame && (
         <PanelSection title="Frame Settings">
           <label className="inspector-checkbox-label">
             <input

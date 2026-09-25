@@ -11,6 +11,7 @@ import type {
 } from '../types/document';
 import { generatePolygonPoints } from '../utils/polygon';
 import { getAssetBlob } from '../storage/indexedDb';
+import { LayoutGridOverlay } from './LayoutGridOverlay';
 
 interface CanvasObjectRendererProps {
   object: SceneObject;
@@ -103,6 +104,7 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
           >
             {frame.name}
           </div>
+          <LayoutGridOverlay frame={frame} />
         </div>
       );
     }

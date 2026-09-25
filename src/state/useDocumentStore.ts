@@ -1,8 +1,10 @@
 import { create } from 'zustand';
-import type { DocumentModel, Page, SceneObject, AlignmentType, Asset, SaveStatus } from '../types/document';
+import type { DocumentModel, Page, SceneObject, AlignmentType, Asset, SaveStatus, FrameObject } from '../types/document';
 import { loadDocumentFromStorage, saveDocumentToStorage, saveDocumentImmediate } from '../storage/localStorage';
 import { generateId } from '../utils/id';
 import { calculateBoundingBox } from '../utils/geometry';
+import { recomputePageLayout } from '../layout/layoutEngine';
+import { applyFrameResizeConstraints } from '../layout/constraints';
 
 interface DocumentStoreState {
   doc: DocumentModel;
@@ -28,9 +30,14 @@ interface DocumentStoreState {
   renameObject: (id: string, name: string) => void;
   duplicateObjects: (ids: string[], offset?: { x: number; y: number }) => string[];
   reorderObject: (objectId: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
+  reparentObject: (objectId: string, newParentId: string | null) => void;
   groupObjects: (ids: string[]) => string | null;
   ungroupObjects: (groupIds: string[]) => string[];
   alignObjects: (alignment: AlignmentType, selectedIds: string[]) => void;
+
+  // Layout Engine
+  recomputeLayout: () => void;
+  resizeFrameWithConstraints: (frameId: string, newWidth: number, newHeight: number) => void;
 
   // Asset actions
   addAsset: (asset: Asset) => void;
@@ -169,7 +176,11 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       const targetPageId = pageId || state.doc.activePageId;
       const nextPages = state.doc.pages.map((p) => {
         if (p.id === targetPageId) {
-          return { ...p, objects: [...p.objects, object] };
+          const updatedPage = recomputePageLayout({
+            ...p,
+            objects: [...p.objects, object],
+          });
+          return updatedPage;
         }
         return p;
       });
@@ -200,7 +211,8 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
           return obj;
         });
 
-        return { ...p, objects: nextObjects };
+        // Run layout engine
+        return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       if (!hasChange) return state;
@@ -232,7 +244,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
           return obj;
         });
 
-        return { ...p, objects: nextObjects };
+        return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -257,7 +269,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       const nextPages = state.doc.pages.map((p) => {
         if (p.id !== activeId) return p;
         const remaining = p.objects.filter((obj) => !idsSet.has(obj.id) && (!obj.parentId || !idsSet.has(obj.parentId)));
-        return { ...p, objects: remaining };
+        return recomputePageLayout({ ...p, objects: remaining });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -279,7 +291,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         const nextObjects = p.objects.map((obj) =>
           obj.id === id ? ({ ...obj, visible: !obj.visible } as SceneObject) : obj
         );
-        return { ...p, objects: nextObjects };
+        return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -357,7 +369,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
           }
         }
 
-        return { ...p, objects: [...p.objects, ...cloned] };
+        return recomputePageLayout({ ...p, objects: [...p.objects, ...cloned] });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -397,7 +409,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
           objects.splice(target, 0, item);
         }
 
-        return { ...p, objects };
+        return recomputePageLayout({ ...p, objects });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -474,7 +486,6 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         const nextObjects: SceneObject[] = [];
         for (const obj of p.objects) {
           if (groupIdsSet.has(obj.id)) {
-            // Remove group itself
             continue;
           }
           if (obj.parentId && groupIdsSet.has(obj.parentId)) {
@@ -485,7 +496,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
           }
         }
 
-        return { ...p, objects: nextObjects };
+        return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
@@ -570,7 +581,144 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         const nextObjects = p.objects.map((obj) =>
           updates[obj.id] ? ({ ...obj, ...updates[obj.id] } as SceneObject) : obj
         );
-        return { ...p, objects: nextObjects };
+        return recomputePageLayout({ ...p, objects: nextObjects });
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  reparentObject: (objectId: string, newParentId: string | null) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const obj = p.objects.find((o) => o.id === objectId);
+        if (!obj || obj.parentId === newParentId) return p;
+        if (objectId === newParentId) return p;
+
+        // Prevent circular parenting
+        let currentParent = newParentId ? p.objects.find((o) => o.id === newParentId) : null;
+        while (currentParent) {
+          if (currentParent.id === objectId) return p; // Disallow cycle
+          currentParent = currentParent.parentId
+            ? p.objects.find((o) => o.id === currentParent!.parentId)
+            : null;
+        }
+
+        // Compute absolute position before reparenting
+        const getAbsolutePos = (targetId: string): { x: number; y: number } => {
+          let curr = p.objects.find((o) => o.id === targetId);
+          let absX = 0;
+          let absY = 0;
+          while (curr) {
+            absX += curr.x;
+            absY += curr.y;
+            curr = curr.parentId ? p.objects.find((o) => o.id === curr!.parentId) : undefined;
+          }
+          return { x: absX, y: absY };
+        };
+
+        const targetAbs = getAbsolutePos(objectId);
+
+        let newLocalX = targetAbs.x;
+        let newLocalY = targetAbs.y;
+
+        if (newParentId) {
+          const parentAbs = getAbsolutePos(newParentId);
+          newLocalX -= parentAbs.x;
+          newLocalY -= parentAbs.y;
+        }
+
+        const nextObjects = p.objects.map((o) => {
+          if (o.id === objectId) {
+            return {
+              ...o,
+              parentId: newParentId,
+              x: newLocalX,
+              y: newLocalY,
+            } as SceneObject;
+          }
+          return o;
+        });
+
+        return recomputePageLayout({ ...p, objects: nextObjects });
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  recomputeLayout: () => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+        return recomputePageLayout(p);
+      });
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      return { doc: nextDoc };
+    });
+  },
+
+  resizeFrameWithConstraints: (frameId: string, newWidth: number, newHeight: number) => {
+    set((state) => {
+      const activeId = state.doc.activePageId;
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id !== activeId) return p;
+
+        const frame = p.objects.find((o) => o.id === frameId);
+        if (!frame || frame.type !== 'frame') return p;
+
+        const frameObj = frame as FrameObject;
+        const children = p.objects.filter((o) => o.parentId === frameId);
+
+        let nextObjects = p.objects;
+
+        // If not auto-layout, apply constraints resizing
+        if (!frameObj.layoutMode || frameObj.layoutMode === 'none') {
+          const childUpdates = applyFrameResizeConstraints(
+            frameObj,
+            children,
+            Math.max(10, newWidth),
+            Math.max(10, newHeight)
+          );
+
+          nextObjects = p.objects.map((o) => {
+            if (o.id === frameId) {
+              return { ...o, width: Math.max(10, newWidth), height: Math.max(10, newHeight) };
+            }
+            if (childUpdates[o.id]) {
+              return { ...o, ...childUpdates[o.id] } as SceneObject;
+            }
+            return o;
+          });
+        } else {
+          // Auto layout frame
+          nextObjects = p.objects.map((o) => {
+            if (o.id === frameId) {
+              return { ...o, width: Math.max(10, newWidth), height: Math.max(10, newHeight) };
+            }
+            return o;
+          });
+        }
+
+        return recomputePageLayout({ ...p, objects: nextObjects });
       });
 
       const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };

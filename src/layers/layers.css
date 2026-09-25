@@ -57,6 +57,15 @@
   color: #ffffff;
 }
 
+.layer-item.drag-over {
+  background-color: rgba(99, 102, 241, 0.25);
+  outline: 1px solid var(--accent-light);
+}
+
+.layer-icon.autolayout {
+  color: var(--accent-light);
+}
+
 .layer-item.selected::before {
   content: '';
   position: absolute;

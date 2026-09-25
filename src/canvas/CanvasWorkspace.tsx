@@ -8,11 +8,12 @@ import { CanvasObjectRenderer } from './CanvasObjectRenderer';
 import { SelectionOverlay } from './SelectionOverlay';
 import { CanvasRulers } from './CanvasRulers';
 import { ContextMenu } from './ContextMenu';
+import { AutoLayoutVisualizer } from './AutoLayoutVisualizer';
 import { calculateBoundingBox, screenToCanvas, snap } from '../utils/geometry';
 import { calculateSmartGuidesAndSnap } from '../utils/smartGuides';
 import { processImageFile } from '../utils/imageImporter';
 import { generateId } from '../utils/id';
-import type { SceneObject, ResizeHandleType, BoundingBox, SmartGuideLine } from '../types/document';
+import type { SceneObject, ResizeHandleType, BoundingBox, SmartGuideLine, FrameObject } from '../types/document';
 import './canvas.css';
 
 interface DragState {
@@ -55,6 +56,7 @@ export const CanvasWorkspace: React.FC = () => {
   const [activeGuides, setActiveGuides] = useState<SmartGuideLine[]>([]);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
+  const [hoveredFrameId, setHoveredFrameId] = useState<string | null>(null);
 
   // Selected objects
   const selectedObjects = objects.filter((o) => selectedIds.includes(o.id));
@@ -363,6 +365,18 @@ export const CanvasWorkspace: React.FC = () => {
           setActiveGuides([]);
         }
 
+        // Check for drop target frame
+        const targetFrame = objects.find(
+          (o) =>
+            o.type === 'frame' &&
+            !selectedIds.includes(o.id) &&
+            currX >= o.x &&
+            currX <= o.x + o.width &&
+            currY >= o.y &&
+            currY <= o.y + o.height
+        );
+        setHoveredFrameId(targetFrame ? targetFrame.id : null);
+
         const updates: Record<string, Partial<SceneObject>> = {};
         for (const [id, init] of Object.entries(dragState.initialObjects)) {
           let newX = init.x + targetDx;
@@ -407,34 +421,42 @@ export const CanvasWorkspace: React.FC = () => {
           else newMaxY = newMinY + newH;
         }
 
-        const scaleX = initialBbox.width > 0 ? newW / initialBbox.width : 1;
-        const scaleY = initialBbox.height > 0 ? newH / initialBbox.height : 1;
+        const singleFrame = selectedObjects.length === 1 && selectedObjects[0].type === 'frame'
+          ? (selectedObjects[0] as FrameObject)
+          : null;
 
-        const updates: Record<string, Partial<SceneObject>> = {};
-        for (const [id, init] of Object.entries(dragState.initialObjects)) {
-          const relX = init.x - initialBbox.minX;
-          const relY = init.y - initialBbox.minY;
+        if (singleFrame) {
+          useDocumentStore.getState().resizeFrameWithConstraints(singleFrame.id, Math.round(newW), Math.round(newH));
+        } else {
+          const scaleX = initialBbox.width > 0 ? newW / initialBbox.width : 1;
+          const scaleY = initialBbox.height > 0 ? newH / initialBbox.height : 1;
 
-          let targetX = newMinX + relX * scaleX;
-          let targetY = newMinY + relY * scaleY;
-          let targetW = Math.max(5, init.width * scaleX);
-          let targetH = Math.max(5, init.height * scaleY);
+          const updates: Record<string, Partial<SceneObject>> = {};
+          for (const [id, init] of Object.entries(dragState.initialObjects)) {
+            const relX = init.x - initialBbox.minX;
+            const relY = init.y - initialBbox.minY;
 
-          if (snapToGrid) {
-            targetX = snap(targetX, gridSize);
-            targetY = snap(targetY, gridSize);
-            targetW = snap(targetW, gridSize);
-            targetH = snap(targetH, gridSize);
+            let targetX = newMinX + relX * scaleX;
+            let targetY = newMinY + relY * scaleY;
+            let targetW = Math.max(5, init.width * scaleX);
+            let targetH = Math.max(5, init.height * scaleY);
+
+            if (snapToGrid) {
+              targetX = snap(targetX, gridSize);
+              targetY = snap(targetY, gridSize);
+              targetW = snap(targetW, gridSize);
+              targetH = snap(targetH, gridSize);
+            }
+
+            updates[id] = {
+              x: targetX,
+              y: targetY,
+              width: targetW,
+              height: targetH,
+            };
           }
-
-          updates[id] = {
-            x: targetX,
-            y: targetY,
-            width: targetW,
-            height: targetH,
-          };
+          updateObjects(updates, false);
         }
-        updateObjects(updates, false);
       }
     };
 
@@ -442,6 +464,15 @@ export const CanvasWorkspace: React.FC = () => {
       if (!dragState) return;
 
       setActiveGuides([]);
+
+      if (dragState.type === 'move') {
+        if (hoveredFrameId) {
+          for (const id of selectedIds) {
+            useDocumentStore.getState().reparentObject(id, hoveredFrameId);
+          }
+        }
+        setHoveredFrameId(null);
+      }
 
       if (dragState.type === 'create' && ghostBox) {
         const finalW = Math.max(ghostBox.width, 30);
@@ -773,6 +804,40 @@ export const CanvasWorkspace: React.FC = () => {
             onResizeStart={handleResizeStart}
             onMoveStart={handleSelectionMoveStart}
           />
+        )}
+
+        {/* Selected Frame Auto Layout Visualizer */}
+        {selectedObjects.length === 1 &&
+          selectedObjects[0].type === 'frame' &&
+          (selectedObjects[0] as FrameObject).layoutMode !== 'none' && (
+            <AutoLayoutVisualizer
+              frame={selectedObjects[0] as FrameObject}
+              zoom={zoom}
+            />
+          )}
+
+        {/* Drop Target Frame Highlight Overlay */}
+        {hoveredFrameId && (
+          (() => {
+            const hFrame = objects.find((o) => o.id === hoveredFrameId);
+            if (!hFrame) return null;
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${hFrame.x}px`,
+                  top: `${hFrame.y}px`,
+                  width: `${hFrame.width}px`,
+                  height: `${hFrame.height}px`,
+                  border: `${2 / zoom}px solid #a855f7`,
+                  backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                  pointerEvents: 'none',
+                  zIndex: 800,
+                  borderRadius: `${(hFrame as FrameObject).cornerRadius || 0}px`,
+                }}
+              />
+            );
+          })()
         )}
 
         {/* Inline Text Editor */}

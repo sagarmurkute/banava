@@ -8,6 +8,45 @@ export type ObjectType =
   | 'image'
   | 'group';
 
+export type LayoutMode = 'none' | 'horizontal' | 'vertical';
+
+export type LayoutAlignment = 'start' | 'center' | 'end' | 'stretch';
+
+export type LayoutDistribution = 'packed' | 'space-between';
+
+export type LayoutWrap = 'none' | 'wrap';
+
+export type SizingMode = 'fixed' | 'hug' | 'fill';
+
+export type HorizontalConstraint = 'left' | 'right' | 'left-right' | 'center' | 'scale';
+export type VerticalConstraint = 'top' | 'bottom' | 'top-bottom' | 'center' | 'scale';
+
+export type ConstraintHorizontal = HorizontalConstraint;
+export type ConstraintVertical = VerticalConstraint;
+
+export interface Constraints {
+  horizontal: HorizontalConstraint;
+  vertical: VerticalConstraint;
+}
+
+export interface Padding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export interface LayoutGridConfig {
+  id?: string;
+  enabled?: boolean;
+  visible?: boolean;
+  type: 'columns' | 'rows' | 'grid';
+  count?: number;
+  gutter?: number;
+  margin?: number;
+  color?: string;
+}
+
 export type TextAutoResize = 'auto-width' | 'auto-height' | 'fixed';
 
 export type StrokeAlign = 'center' | 'inside' | 'outside';
@@ -17,18 +56,10 @@ export type LineCap = 'butt' | 'round' | 'square';
 export interface SolidFill {
   type: 'solid';
   color: string;
-  opacity: number; // 0 - 100
+  opacity: number;
 }
 
 export type Fill = SolidFill;
-
-export interface StrokeStyle {
-  color: string;
-  width: number;
-  opacity: number; // 0 - 100
-  align: StrokeAlign;
-  lineCap?: LineCap;
-}
 
 export interface Asset {
   id: string;
@@ -36,7 +67,7 @@ export interface Asset {
   name: string;
   width: number;
   height: number;
-  dataUrl?: string; // in-memory / cache data URL
+  dataUrl?: string;
   createdAt: number;
 }
 
@@ -53,6 +84,37 @@ export interface BaseSceneObject {
   visible: boolean;
   locked: boolean;
   parentId: string | null; // if nested inside a frame or group
+
+  // Sizing & Constraints (Phase 3)
+  sizingHorizontal?: SizingMode;
+  sizingVertical?: SizingMode;
+  constraints?: Constraints;
+  minWidth?: number;
+  maxWidth?: number;
+  minHeight?: number;
+  maxHeight?: number;
+  alignSelf?: LayoutAlignment;
+}
+
+export interface FrameObject extends BaseSceneObject {
+  type: 'frame';
+  fill: string;
+  stroke?: string;
+  strokeWidth?: number;
+  strokeOpacity?: number;
+  cornerRadius?: number;
+  clipsContent?: boolean;
+
+  // Auto Layout Properties
+  layoutMode?: LayoutMode;
+  itemSpacing?: number; // gap
+  padding?: Padding;
+  primaryAxisAlignItems?: 'start' | 'center' | 'end' | 'space-between';
+  counterAxisAlignItems?: 'start' | 'center' | 'end' | 'stretch';
+  layoutWrap?: LayoutWrap;
+
+  // Layout Grid (Columns / Rows)
+  layoutGrids?: LayoutGridConfig[];
 }
 
 export interface RectangleObject extends BaseSceneObject {
@@ -65,16 +127,6 @@ export interface RectangleObject extends BaseSceneObject {
   cornerRadius: number;
 }
 
-export interface FrameObject extends BaseSceneObject {
-  type: 'frame';
-  fill: string;
-  stroke?: string;
-  strokeWidth?: number;
-  strokeOpacity?: number;
-  cornerRadius: number;
-  clipsContent: boolean;
-}
-
 export interface EllipseObject extends BaseSceneObject {
   type: 'ellipse';
   fill: string;
@@ -85,9 +137,9 @@ export interface EllipseObject extends BaseSceneObject {
 
 export interface PolygonObject extends BaseSceneObject {
   type: 'polygon';
-  points: number; // e.g. 3 for triangle, 5 for pentagon/star
+  points: number;
   isStar?: boolean;
-  starRatio?: number; // 0.1 - 0.9 for inner radius ratio
+  starRatio?: number;
   fill: string;
   stroke?: string;
   strokeWidth?: number;
@@ -112,14 +164,14 @@ export interface TextObject extends BaseSceneObject {
   fill: string;
   textAlign: 'left' | 'center' | 'right';
   lineHeight: number;
-  letterSpacing: number; // in px
+  letterSpacing: number;
   autoResize: TextAutoResize;
 }
 
 export interface ImageObject extends BaseSceneObject {
   type: 'image';
   assetId: string;
-  src?: string; // cached preview URL
+  src?: string;
   cornerRadius: number;
   aspectRatio: number;
   fit: 'cover' | 'contain' | 'fill';
@@ -164,8 +216,7 @@ export type ToolType =
   | 'ellipse'
   | 'polygon'
   | 'line'
-  | 'text'
-  | 'image';
+  | 'text';
 
 export interface ViewportState {
   x: number;

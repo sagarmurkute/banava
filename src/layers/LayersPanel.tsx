@@ -19,10 +19,12 @@ import {
   ArrowDown,
   Group,
   Ungroup,
+  Rows,
+  Columns,
 } from 'lucide-react';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
-import type { SceneObject, ObjectType } from '../types/document';
+import type { SceneObject, FrameObject } from '../types/document';
 import { IconButton } from '../components/ui/IconButton';
 import './layers.css';
 
@@ -34,14 +36,17 @@ export const LayersPanel: React.FC = () => {
     renameObject,
     deleteObjects,
     reorderObject,
+    reparentObject,
     groupObjects,
     ungroupObjects,
   } = useDocumentStore();
   const { selectedIds, select, selectMultiple, hoveredId, setHovered } = useSelectionStore();
-  
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const activePage = getActivePage();
   const objects = activePage?.objects || [];
@@ -77,17 +82,79 @@ export const LayersPanel: React.FC = () => {
   };
 
   const handleUngroupSelected = () => {
-    const selectedGroups = objects.filter((o) => selectedIds.includes(o.id) && (o.type === 'group' || o.type === 'frame'));
+    const selectedGroups = objects.filter(
+      (o) => selectedIds.includes(o.id) && (o.type === 'group' || o.type === 'frame')
+    );
     const released = ungroupObjects(selectedGroups.map((g) => g.id));
     if (released.length > 0) {
       selectMultiple(released);
     }
   };
 
-  const getObjectIcon = (type: ObjectType) => {
-    switch (type) {
-      case 'frame':
-        return <Frame size={14} className="layer-icon frame" />;
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    e.stopPropagation();
+    setDraggedId(id);
+    e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedId && draggedId !== targetId) {
+      setDragOverId(targetId);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetObj: SceneObject) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceId = draggedId || e.dataTransfer.getData('text/plain');
+    setDraggedId(null);
+    setDragOverId(null);
+
+    if (!sourceId || sourceId === targetObj.id) return;
+
+    if (targetObj.type === 'frame' || targetObj.type === 'group') {
+      // Reparent into this frame/container
+      reparentObject(sourceId, targetObj.id);
+    } else if (targetObj.parentId) {
+      // Sibling in the same frame
+      reparentObject(sourceId, targetObj.parentId);
+    } else {
+      // Move to root
+      reparentObject(sourceId, null);
+    }
+  };
+
+  const getObjectIcon = (obj: SceneObject) => {
+    if (obj.type === 'frame') {
+      const frame = obj as FrameObject;
+      if (frame.layoutMode === 'horizontal') {
+        return (
+          <span title="Auto Layout (Horizontal)">
+            <Columns size={13} className="layer-icon frame autolayout" />
+          </span>
+        );
+      }
+      if (frame.layoutMode === 'vertical') {
+        return (
+          <span title="Auto Layout (Vertical)">
+            <Rows size={13} className="layer-icon frame autolayout" />
+          </span>
+        );
+      }
+      return <Frame size={14} className="layer-icon frame" />;
+    }
+
+    switch (obj.type) {
       case 'group':
         return <Folder size={14} className="layer-icon group" />;
       case 'rectangle':
@@ -111,6 +178,7 @@ export const LayersPanel: React.FC = () => {
     const isEditing = editingId === obj.id;
     const isContainer = obj.type === 'frame' || obj.type === 'group';
     const isCollapsed = collapsedItems[obj.id];
+    const isDragOver = dragOverId === obj.id;
 
     // Children if frame or group
     const children = objects.filter((o) => o.parentId === obj.id);
@@ -118,8 +186,15 @@ export const LayersPanel: React.FC = () => {
     return (
       <div key={obj.id} className="layer-item-wrapper">
         <div
-          className={`layer-item ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''}`}
+          className={`layer-item ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''} ${
+            isDragOver ? 'drag-over' : ''
+          }`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
+          draggable
+          onDragStart={(e) => handleDragStart(e, obj.id)}
+          onDragOver={(e) => handleDragOver(e, obj.id)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, obj)}
           onClick={(e) => select(obj.id, e.shiftKey || e.ctrlKey || e.metaKey)}
           onMouseEnter={() => setHovered(obj.id)}
           onMouseLeave={() => setHovered(null)}
@@ -138,7 +213,7 @@ export const LayersPanel: React.FC = () => {
           )}
 
           {/* Object Type Icon */}
-          <span className="layer-type-icon">{getObjectIcon(obj.type)}</span>
+          <span className="layer-type-icon">{getObjectIcon(obj)}</span>
 
           {/* Object Name / Editable Name */}
           <div className="layer-name-container">
@@ -246,7 +321,20 @@ export const LayersPanel: React.FC = () => {
       </div>
 
       {/* Layers List */}
-      <div className="layers-list-scroll">
+      <div
+        className="layers-list-scroll"
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (draggedId) {
+            reparentObject(draggedId, null);
+            setDraggedId(null);
+            setDragOverId(null);
+          }
+        }}
+      >
         {displayRoots.length === 0 ? (
           <div className="layers-empty-state">
             <span>No layers on this page</span>

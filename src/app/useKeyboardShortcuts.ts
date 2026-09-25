@@ -167,8 +167,32 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Escape -> Deselect
+      // Enter -> Drill down into frame children
+      if (e.key === 'Enter' && selectedIds.length === 1) {
+        const selObj = objects.find((o) => o.id === selectedIds[0]);
+        if (selObj && (selObj.type === 'frame' || selObj.type === 'group')) {
+          const children = objects.filter((o) => o.parentId === selObj.id && o.visible && !o.locked);
+          if (children.length > 0) {
+            e.preventDefault();
+            selectMultiple(children.map((c) => c.id));
+            setStatusMessage(`Selected ${children.length} children inside ${selObj.name}`);
+            return;
+          }
+        }
+      }
+
+      // Escape -> Move selection to parent frame or deselect
       if (e.key === 'Escape') {
+        if (selectedIds.length === 1) {
+          const selObj = objects.find((o) => o.id === selectedIds[0]);
+          if (selObj && selObj.parentId) {
+            e.preventDefault();
+            select(selObj.parentId);
+            const parentObj = objects.find((o) => o.id === selObj.parentId);
+            setStatusMessage(`Selected parent ${parentObj?.name || 'frame'}`);
+            return;
+          }
+        }
         deselectAll();
         setActiveTool('select');
         return;

@@ -34,6 +34,7 @@ import { ComponentInspector } from './ComponentInspector';
 import { InstanceInspector } from './InstanceInspector';
 import { StylePickerDropdown } from './StylePickerDropdown';
 import { PrototypeInspector } from './PrototypeInspector';
+import { ExportInspector } from './ExportInspector';
 import { useUIStore } from '../state/useUIStore';
 import type {
   RectangleObject,
@@ -576,6 +577,9 @@ export const RightInspector: React.FC = () => {
           </label>
         </PanelSection>
       )}
+
+      {/* Export Configurations (Phase 6) */}
+      <ExportInspector target={count === 1 ? target : null} />
     </aside>
   );
 };

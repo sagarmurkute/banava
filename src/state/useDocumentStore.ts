@@ -13,12 +13,16 @@ import type {
   Variable,
   VariableType,
   ComponentInstanceObject,
+  ExportSetting,
 } from '../types/document';
 import { loadDocumentFromStorage, saveDocumentToStorage, saveDocumentImmediate } from '../storage/localStorage';
 import { generateId } from '../utils/id';
 import { calculateBoundingBox } from '../utils/geometry';
 import { recomputePageLayout } from '../layout/layoutEngine';
 import { applyFrameResizeConstraints } from '../layout/constraints';
+import { DocumentService } from '../documents/documentEngine';
+import { SnapshotEngine } from '../snapshots/snapshotEngine';
+import { ImportEngine } from '../import/importEngine';
 import {
   createMasterComponent,
   createComponentInstance,
@@ -142,6 +146,24 @@ interface DocumentStoreState {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  // Phase 6: Document & File Management
+  openDocument: (doc: DocumentModel) => void;
+  createNewDocument: (name?: string, projectId?: string | null, folderId?: string | null) => void;
+  duplicateCurrentDocument: () => DocumentModel;
+  renameDocument: (name: string) => void;
+  moveDocument: (projectId: string | null, folderId: string | null) => void;
+  createSnapshot: (name: string, description?: string) => void;
+  restoreSnapshot: (snapshotId: string) => void;
+  deleteSnapshot: (snapshotId: string) => void;
+  renameSnapshot: (snapshotId: string, newName: string) => void;
+  setCoverFrame: (frameId: string) => void;
+  addExportSetting: (targetObjectId?: string, setting?: ExportSetting) => void;
+  removeExportSetting: (targetObjectId?: string, settingId?: string) => void;
+  duplicatePage: (pageId: string) => string;
+  reorderPage: (pageId: string, newIndex: number) => void;
+  moveObjectToPage: (objectId: string, targetPageId: string) => void;
+  importImageFile: (file: File, targetX?: number, targetY?: number) => Promise<string>;
+  pasteClipboardPayload: (payload: any) => void;
 
   // Persistence
   save: () => void;
@@ -1620,6 +1642,277 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
 
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
+
+  // Phase 6: Document & File Management
+  openDocument: (newDoc: DocumentModel) => {
+    set({
+      doc: newDoc,
+      past: [],
+      future: [],
+    });
+    saveDocumentToStorage(newDoc, (status) => get().setSaveStatus(status));
+  },
+
+  createNewDocument: (name?: string, projectId?: string | null, folderId?: string | null) => {
+    const freshDoc = DocumentService.createDocument(name || 'Untitled Document', projectId, folderId);
+    set({
+      doc: freshDoc,
+      past: [],
+      future: [],
+    });
+    saveDocumentImmediate(freshDoc);
+  },
+
+  duplicateCurrentDocument: () => {
+    const duplicated = DocumentService.duplicateDocument(get().doc);
+    saveDocumentImmediate(duplicated);
+    return duplicated;
+  },
+
+  renameDocument: (name: string) => {
+    set((state) => {
+      const nextDoc = DocumentService.renameDocument(state.doc, name);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  moveDocument: (projectId: string | null, folderId: string | null) => {
+    set((state) => {
+      const nextDoc = DocumentService.moveDocument(state.doc, projectId, folderId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  createSnapshot: (name: string, description?: string) => {
+    set((state) => {
+      const { nextDoc } = SnapshotEngine.createSnapshot(state.doc, name, description);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  restoreSnapshot: (snapshotId: string) => {
+    set((state) => {
+      const restored = SnapshotEngine.restoreSnapshot(state.doc, snapshotId);
+      if (!restored) return state;
+      saveDocumentToStorage(restored, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: restored,
+      };
+    });
+  },
+
+  deleteSnapshot: (snapshotId: string) => {
+    set((state) => {
+      const nextDoc = SnapshotEngine.deleteSnapshot(state.doc, snapshotId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  renameSnapshot: (snapshotId: string, newName: string) => {
+    set((state) => {
+      const nextDoc = SnapshotEngine.renameSnapshot(state.doc, snapshotId, newName);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  setCoverFrame: (frameId: string) => {
+    set((state) => {
+      const nextDoc = DocumentService.setCoverFrame(state.doc, frameId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  addExportSetting: (targetObjectId?: string, setting?: ExportSetting) => {
+    set((state) => {
+      const newSetting: ExportSetting = setting || {
+        id: generateId('exp'),
+        format: 'PNG',
+        scale: 1,
+        transparent: true,
+      };
+
+      if (!targetObjectId) {
+        // Add to document global export settings
+        const nextSettings = [...(state.doc.exportSettings || []), newSetting];
+        const nextDoc = { ...state.doc, exportSettings: nextSettings, updatedAt: Date.now() };
+        saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+        return { doc: nextDoc };
+      }
+
+      // Add to specific object
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((o) => {
+          if (o.id === targetObjectId) {
+            const cur = o.exportSettings || [];
+            return { ...o, exportSettings: [...cur, newSetting] };
+          }
+          return o;
+        });
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  removeExportSetting: (targetObjectId?: string, settingId?: string) => {
+    set((state) => {
+      if (!targetObjectId) {
+        const nextSettings = (state.doc.exportSettings || []).filter((s) => s.id !== settingId);
+        const nextDoc = { ...state.doc, exportSettings: nextSettings, updatedAt: Date.now() };
+        saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+        return { doc: nextDoc };
+      }
+
+      const nextPages = state.doc.pages.map((p) => {
+        const nextObjects = p.objects.map((o) => {
+          if (o.id === targetObjectId) {
+            const cur = (o.exportSettings || []).filter((s) => s.id !== settingId);
+            return { ...o, exportSettings: cur };
+          }
+          return o;
+        });
+        return { ...p, objects: nextObjects };
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  duplicatePage: (pageId: string) => {
+    const page = get().doc.pages.find((p) => p.id === pageId);
+    if (!page) return pageId;
+
+    const newPageId = generateId('page');
+    const idMap = new Map<string, string>();
+    for (const obj of page.objects) {
+      idMap.set(obj.id, generateId(obj.type || 'obj'));
+    }
+
+    const clonedObjects: SceneObject[] = page.objects.map((o) => {
+      const cloned = JSON.parse(JSON.stringify(o));
+      cloned.id = idMap.get(o.id) || cloned.id;
+      if (cloned.parentId && idMap.has(cloned.parentId)) {
+        cloned.parentId = idMap.get(cloned.parentId)!;
+      }
+      return cloned;
+    });
+
+    const newPage: Page = {
+      id: newPageId,
+      name: `${page.name} (Copy)`,
+      objects: clonedObjects,
+    };
+
+    set((state) => {
+      const nextPages = [...state.doc.pages, newPage];
+      const nextDoc = { ...state.doc, pages: nextPages, activePageId: newPageId, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+
+    return newPageId;
+  },
+
+  reorderPage: (pageId: string, newIndex: number) => {
+    set((state) => {
+      const currentIndex = state.doc.pages.findIndex((p) => p.id === pageId);
+      if (currentIndex === -1 || newIndex < 0 || newIndex >= state.doc.pages.length) return state;
+
+      const nextPages = [...state.doc.pages];
+      const [removed] = nextPages.splice(currentIndex, 1);
+      nextPages.splice(newIndex, 0, removed);
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  moveObjectToPage: (objectId: string, targetPageId: string) => {
+    set((state) => {
+      const sourcePage = state.doc.pages.find((p) => p.objects.some((o) => o.id === objectId));
+      if (!sourcePage || sourcePage.id === targetPageId) return state;
+
+      const objToMove = sourcePage.objects.find((o) => o.id === objectId);
+      if (!objToMove) return state;
+
+      // Collect any children if it's a frame or group
+      const allToMove: SceneObject[] = [];
+      const collect = (id: string) => {
+        const found = sourcePage.objects.find((o) => o.id === id);
+        if (found) {
+          allToMove.push(found);
+          sourcePage.objects.filter((c) => c.parentId === id).forEach((c) => collect(c.id));
+        }
+      };
+      collect(objectId);
+
+      const moveIds = new Set(allToMove.map((o) => o.id));
+      const nextPages = state.doc.pages.map((p) => {
+        if (p.id === sourcePage.id) {
+          return { ...p, objects: p.objects.filter((o) => !moveIds.has(o.id)) };
+        }
+        if (p.id === targetPageId) {
+          return { ...p, objects: [...p.objects, ...allToMove] };
+        }
+        return p;
+      });
+
+      const nextDoc = { ...state.doc, pages: nextPages, updatedAt: Date.now() };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  importImageFile: async (file: File, targetX = 100, targetY = 100): Promise<string> => {
+    const { asset, imageObject } = await ImportEngine.importImageFile(file, targetX, targetY);
+    get().addAsset(asset);
+    get().addObject(imageObject);
+    return imageObject.id;
+  },
+
+  pasteClipboardPayload: (payload: any) => {
+    if (!payload || !Array.isArray(payload.objects) || payload.objects.length === 0) return;
+    set((state) => {
+      const nextDoc = ImportEngine.mergeClipboardObjects(
+        state.doc,
+        payload,
+        state.doc.activePageId,
+        { x: 20, y: 20 }
+      );
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
 
   save: () => {
     get().setSaveStatus('saving');

@@ -202,6 +202,9 @@ export interface BaseSceneObject {
   strokeVariableId?: string;
   paddingVariableId?: string;
   gapVariableId?: string;
+
+  // Export Settings (Phase 6)
+  exportSettings?: ExportSetting[];
 }
 
 export interface FrameObject extends BaseSceneObject {
@@ -339,7 +342,9 @@ export interface DesignSystemVariables {
 }
 
 import type { PrototypeDocumentData } from '../prototype/types';
+import type { BanavaDocumentMetadata, DocumentSnapshot, ExportSetting } from '../documents/types';
 export * from '../prototype/types';
+export * from '../documents/types';
 
 export interface DocumentModel {
   version: number;
@@ -355,6 +360,10 @@ export interface DocumentModel {
   variables?: DesignSystemVariables;
   // Phase 5 Prototype additions
   prototype?: PrototypeDocumentData;
+  // Phase 6 File & Document additions
+  metadata?: BanavaDocumentMetadata;
+  snapshots?: DocumentSnapshot[];
+  exportSettings?: ExportSetting[];
   createdAt: number;
   updatedAt: number;
 }

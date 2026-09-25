@@ -17,9 +17,9 @@ interface ViewportStoreState extends ViewportState {
 const initialViewport = loadViewportFromStorage();
 
 export const useViewportStore = create<ViewportStoreState>((set, get) => ({
-  x: initialViewport.x,
-  y: initialViewport.y,
-  zoom: initialViewport.zoom,
+  x: initialViewport?.x ?? 0,
+  y: initialViewport?.y ?? 0,
+  zoom: initialViewport?.zoom ?? 1,
 
   setViewport: (partial) => {
     set((state) => {

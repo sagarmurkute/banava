@@ -149,11 +149,45 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      // New Document (Ctrl+N)
+      if (isCtrlOrMeta && (e.key === 'n' || e.key === 'N') && !e.shiftKey) {
+        e.preventDefault();
+        useDocumentStore.getState().createNewDocument('Untitled Design');
+        setStatusMessage('Created new document (Ctrl+N)');
+        return;
+      }
+
+      // Open Dashboard (Ctrl+O)
+      if (isCtrlOrMeta && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault();
+        useUIStore.getState().setViewMode('dashboard');
+        return;
+      }
+
+      // Export .banava (Ctrl+Shift+E)
+      if (isCtrlOrMeta && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+        e.preventDefault();
+        const docToExport = useDocumentStore.getState().doc;
+        import('../export/exportEngine').then(({ ExportEngine }) => {
+          ExportEngine.exportDocumentBanava(docToExport);
+          setStatusMessage('Exported .banava document');
+        });
+        return;
+      }
+
+      // Duplicate Document (Ctrl+Shift+D)
+      if (isCtrlOrMeta && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        const duplicated = useDocumentStore.getState().duplicateCurrentDocument();
+        setStatusMessage(`Duplicated document as "${duplicated.name}"`);
+        return;
+      }
+
       // Save
       if (isCtrlOrMeta && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         save();
-        setStatusMessage('Document saved');
+        setStatusMessage('Document saved (Ctrl+S)');
         return;
       }
 

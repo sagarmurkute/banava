@@ -30,6 +30,7 @@ import { useUIStore } from '../state/useUIStore';
 import { processImageFile } from '../utils/imageImporter';
 import type { ToolType } from '../types/document';
 import { IconButton } from '../components/ui/IconButton';
+import { TopFileMenu } from './TopFileMenu';
 import './app.css';
 
 export const TopToolbar: React.FC = () => {
@@ -47,6 +48,7 @@ export const TopToolbar: React.FC = () => {
     editorMode,
     setEditorMode,
     setIsPresenting,
+    setViewMode,
   } = useUIStore();
 
   const [isEditingDocName, setIsEditingDocName] = useState(false);
@@ -95,13 +97,23 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <header className="app-top-toolbar">
-      {/* Brand Logo & Name */}
+      {/* Brand Logo & File Menu */}
       <div className="toolbar-brand-section">
-        <div className="brand-logo-badge">
+        <div
+          className="brand-logo-badge cursor-pointer"
+          title="Back to All Documents (Dashboard)"
+          onClick={() => setViewMode('dashboard')}
+        >
           <Sparkles size={16} className="brand-logo-icon" />
         </div>
-        <span className="brand-name">Sagar Design</span>
-        <div className="brand-badge-phase">v2.0</div>
+        <span
+          className="brand-name cursor-pointer"
+          title="Back to All Documents (Dashboard)"
+          onClick={() => setViewMode('dashboard')}
+        >
+          BANAVA
+        </span>
+        <TopFileMenu />
       </div>
 
       {/* Document Name */}
@@ -114,21 +126,28 @@ export const TopToolbar: React.FC = () => {
             value={docName}
             onChange={(e) => setDocName(e.target.value)}
             onBlur={() => {
-              useDocumentStore.setState((s) => ({ doc: { ...s.doc, name: docName } }));
+              if (docName.trim()) {
+                useDocumentStore.getState().renameDocument(docName.trim());
+              }
               setIsEditingDocName(false);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                useDocumentStore.setState((s) => ({ doc: { ...s.doc, name: docName } }));
+                if (docName.trim()) {
+                  useDocumentStore.getState().renameDocument(docName.trim());
+                }
                 setIsEditingDocName(false);
               }
             }}
           />
         ) : (
           <span
-            className="doc-title-label truncate"
+            className="doc-title-label truncate cursor-pointer hover:text-white"
             title="Click to rename document"
-            onClick={() => setIsEditingDocName(true)}
+            onClick={() => {
+              setDocName(doc.name);
+              setIsEditingDocName(true);
+            }}
           >
             {doc.name}
           </span>

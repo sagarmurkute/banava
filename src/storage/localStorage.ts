@@ -1,53 +1,21 @@
 import type { DocumentModel, ViewportState } from '../types/document';
-import { createDefaultDocument, CURRENT_DOCUMENT_VERSION } from '../document/defaultDocument';
-import { createDefaultStyles } from '../system/styleEngine';
-import { createDefaultVariables } from '../system/variableEngine';
+import { createDefaultDocument } from '../document/defaultDocument';
+import { SchemaMigrationManager } from '../documents/migration';
+import { defaultStorageProvider } from './storageProvider';
+import { RecoveryEngine } from './recoveryEngine';
 
 const STORAGE_KEY_DOC = 'sagar_design_document_v2';
 const STORAGE_KEY_VIEWPORT = 'sagar_design_viewport_v2';
 
-let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
 export function saveDocumentToStorage(
   doc: DocumentModel,
-  onStatusChange?: (status: 'saving' | 'saved' | 'error') => void
+  onStatusChange?: (status: 'saving' | 'saved' | 'error' | 'unsaved') => void
 ): void {
-  if (onStatusChange) onStatusChange('saving');
-
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-  }
-
-  saveDebounceTimer = setTimeout(() => {
-    try {
-      const sanitizedDoc: DocumentModel = {
-        ...doc,
-        updatedAt: Date.now(),
-      };
-      localStorage.setItem(STORAGE_KEY_DOC, JSON.stringify(sanitizedDoc));
-      if (onStatusChange) onStatusChange('saved');
-    } catch (err) {
-      console.error('Failed to save document to localStorage:', err);
-      if (onStatusChange) onStatusChange('error');
-    }
-  }, 400);
+  RecoveryEngine.queueAutoSave(doc, onStatusChange as any, 500);
 }
 
 export function saveDocumentImmediate(doc: DocumentModel): boolean {
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-  }
-  try {
-    const sanitizedDoc: DocumentModel = {
-      ...doc,
-      updatedAt: Date.now(),
-    };
-    localStorage.setItem(STORAGE_KEY_DOC, JSON.stringify(sanitizedDoc));
-    return true;
-  } catch (err) {
-    console.error('Immediate save failed:', err);
-    return false;
-  }
+  return defaultStorageProvider.saveDocument(doc) as any;
 }
 
 export function loadDocumentFromStorage(): DocumentModel {
@@ -56,58 +24,17 @@ export function loadDocumentFromStorage(): DocumentModel {
     if (!raw) {
       raw = localStorage.getItem('sagar_design_document_v1');
     }
-    if (!raw) return createDefaultDocument();
+    if (!raw) {
+      const defaultDoc = createDefaultDocument();
+      defaultStorageProvider.saveDocument(defaultDoc);
+      return defaultDoc;
+    }
 
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      return createDefaultDocument();
-    }
-
-    if (!Array.isArray(parsed.pages) || parsed.pages.length === 0) {
-      return createDefaultDocument();
-    }
-
-    if (!parsed.assets || typeof parsed.assets !== 'object') {
-      parsed.assets = {};
-    }
-
-    if (!parsed.components || typeof parsed.components !== 'object') {
-      parsed.components = {};
-    }
-    if (!parsed.componentSets || typeof parsed.componentSets !== 'object') {
-      parsed.componentSets = {};
-    }
-    if (!parsed.styles || typeof parsed.styles !== 'object') {
-      parsed.styles = createDefaultStyles();
-    }
-    if (!parsed.variables || typeof parsed.variables !== 'object') {
-      parsed.variables = createDefaultVariables();
-    }
-    if (!parsed.prototype || typeof parsed.prototype !== 'object') {
-      parsed.prototype = {
-        flows: {},
-        connections: {},
-        interactions: {},
-        variables: {},
-        settings: {
-          devicePreset: 'desktop',
-          customWidth: 1440,
-          customHeight: 900,
-          showHotspots: true,
-          theme: 'dark',
-        },
-      };
-    }
-
-    parsed.version = CURRENT_DOCUMENT_VERSION;
-
-    if (!parsed.activePageId || !parsed.pages.some((p: { id: string }) => p.id === parsed.activePageId)) {
-      parsed.activePageId = parsed.pages[0].id;
-    }
-
-    return parsed as DocumentModel;
+    const { document: migratedDoc } = SchemaMigrationManager.migrate(parsed);
+    return migratedDoc;
   } catch (err) {
-    console.warn('Error loading document from storage, recovering with default template:', err);
+    console.error('Failed to load document from storage, creating default:', err);
     return createDefaultDocument();
   }
 }
@@ -120,31 +47,12 @@ export function saveViewportToStorage(viewport: ViewportState): void {
   }
 }
 
-export function loadViewportFromStorage(): ViewportState {
+export function loadViewportFromStorage(): ViewportState | null {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY_VIEWPORT);
-    if (!raw) {
-      raw = localStorage.getItem('sagar_design_viewport_v1');
-    }
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (
-        typeof parsed.x === 'number' &&
-        typeof parsed.y === 'number' &&
-        typeof parsed.zoom === 'number' &&
-        parsed.zoom > 0.05 &&
-        parsed.zoom < 30
-      ) {
-        return parsed;
-      }
-    }
-  } catch (err) {
-    console.warn('Error loading viewport from localStorage:', err);
+    const raw = localStorage.getItem(STORAGE_KEY_VIEWPORT);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
-
-  return {
-    x: 200,
-    y: 80,
-    zoom: 1.0,
-  };
 }

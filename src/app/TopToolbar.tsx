@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
+  Play,
 } from 'lucide-react';
 import { useToolStore } from '../state/useToolStore';
 import { useDocumentStore } from '../state/useDocumentStore';
@@ -35,7 +36,18 @@ export const TopToolbar: React.FC = () => {
   const { activeTool, setActiveTool } = useToolStore();
   const { doc, undo, redo, canUndo, canRedo, save, saveStatus, getActivePage } = useDocumentStore();
   const { zoom, fitToScreen, resetZoom } = useViewportStore();
-  const { showGrid, toggleGrid, showRulers, toggleRulers, snapToGrid, toggleSnapToGrid, setStatusMessage } = useUIStore();
+  const {
+    showGrid,
+    toggleGrid,
+    showRulers,
+    toggleRulers,
+    snapToGrid,
+    toggleSnapToGrid,
+    setStatusMessage,
+    editorMode,
+    setEditorMode,
+    setIsPresenting,
+  } = useUIStore();
 
   const [isEditingDocName, setIsEditingDocName] = useState(false);
   const [docName, setDocName] = useState(doc.name);
@@ -123,35 +135,71 @@ export const TopToolbar: React.FC = () => {
         )}
       </div>
 
-      {/* Center Tool Selector */}
-      <div className="toolbar-tools-group">
-        {tools.map((t) => (
-          <IconButton
-            key={t.type}
-            icon={t.icon}
-            isActive={activeTool === t.type}
-            tooltip={t.label}
-            shortcut={t.shortcut}
-            onClick={() => setActiveTool(t.type)}
-          />
-        ))}
+      {/* Center Tool Selector & Mode Switcher */}
+      <div className="flex items-center gap-3">
+        {/* Design / Prototype Mode Switcher */}
+        <div className="flex items-center p-0.5 rounded-lg bg-surface-200 border border-border-subtle">
+          <button
+            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+              editorMode === 'design'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+            onClick={() => setEditorMode('design')}
+          >
+            Design
+          </button>
+          <button
+            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+              editorMode === 'prototype'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+            onClick={() => setEditorMode('prototype')}
+          >
+            Prototype
+          </button>
+        </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/svg+xml"
-          style={{ display: 'none' }}
-          onChange={handleImageFileChange}
-        />
-        <IconButton
-          icon={<ImageIcon size={16} />}
-          tooltip="Import Image"
-          onClick={() => fileInputRef.current?.click()}
-        />
+        <div className="toolbar-tools-group">
+          {tools.map((t) => (
+            <IconButton
+              key={t.type}
+              icon={t.icon}
+              isActive={activeTool === t.type}
+              tooltip={t.label}
+              shortcut={t.shortcut}
+              onClick={() => setActiveTool(t.type)}
+            />
+          ))}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            style={{ display: 'none' }}
+            onChange={handleImageFileChange}
+          />
+          <IconButton
+            icon={<ImageIcon size={16} />}
+            tooltip="Import Image"
+            onClick={() => fileInputRef.current?.click()}
+          />
+        </div>
       </div>
 
       {/* Right Toolbar Actions */}
       <div className="toolbar-actions-group">
+        {/* Present Button */}
+        <button
+          className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-md transition-all active:scale-95 cursor-pointer"
+          onClick={() => setIsPresenting(true)}
+          title="Present Prototype (Ctrl+Alt+P)"
+        >
+          <Play size={13} fill="currentColor" />
+          <span>Present</span>
+        </button>
+
         <div className="toolbar-btn-divider" />
 
         {/* Undo / Redo */}

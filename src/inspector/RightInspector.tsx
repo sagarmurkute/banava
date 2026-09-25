@@ -33,6 +33,8 @@ import { LayoutGridInspector } from './LayoutGridInspector';
 import { ComponentInspector } from './ComponentInspector';
 import { InstanceInspector } from './InstanceInspector';
 import { StylePickerDropdown } from './StylePickerDropdown';
+import { PrototypeInspector } from './PrototypeInspector';
+import { useUIStore } from '../state/useUIStore';
 import type {
   RectangleObject,
   FrameObject,
@@ -84,12 +86,22 @@ export const RightInspector: React.FC = () => {
     createComponent,
   } = useDocumentStore();
   const { selectedIds } = useSelectionStore();
+  const { editorMode } = useUIStore();
 
   const activePage = getActivePage();
   const objects = activePage?.objects || [];
 
   const selectedObjects = objects.filter((o) => selectedIds.includes(o.id));
   const count = selectedObjects.length;
+
+  // In Prototype Mode, render PrototypeInspector regardless of selection count
+  if (editorMode === 'prototype') {
+    return (
+      <aside className="app-right-inspector">
+        <PrototypeInspector target={count === 1 ? selectedObjects[0] : null} />
+      </aside>
+    );
+  }
 
   if (count === 0) {
     return (

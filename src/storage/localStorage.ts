@@ -83,6 +83,21 @@ export function loadDocumentFromStorage(): DocumentModel {
     if (!parsed.variables || typeof parsed.variables !== 'object') {
       parsed.variables = createDefaultVariables();
     }
+    if (!parsed.prototype || typeof parsed.prototype !== 'object') {
+      parsed.prototype = {
+        flows: {},
+        connections: {},
+        interactions: {},
+        variables: {},
+        settings: {
+          devicePreset: 'desktop',
+          customWidth: 1440,
+          customHeight: 900,
+          showHotspots: true,
+          theme: 'dark',
+        },
+      };
+    }
 
     parsed.version = CURRENT_DOCUMENT_VERSION;
 

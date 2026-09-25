@@ -32,6 +32,27 @@ import {
   createEffectStyle as makeEffectStyle,
 } from '../system/styleEngine';
 import { createVariable as makeVariable } from '../system/variableEngine';
+import type {
+  PrototypeFlow,
+  PrototypeInteraction,
+  PrototypeTrigger,
+  PrototypeAction,
+  PrototypeTransition,
+  OverlayConfig,
+  PrototypeSettings,
+} from '../prototype/types';
+import {
+  addFlow as makeFlow,
+  updateFlow as modifyFlow,
+  deleteFlow as removeFlow,
+  setFlowStartingPoint as assignStartingPoint,
+  addInteraction as makeInteraction,
+  updateInteraction as modifyInteraction,
+  deleteInteraction as removeInteraction,
+  createConnection as makeConnection,
+  deleteConnection as removeConnection,
+  createDefaultPrototypeData,
+} from '../prototype/engine/prototypeEngine';
 
 interface DocumentStoreState {
   doc: DocumentModel;
@@ -91,6 +112,25 @@ interface DocumentStoreState {
   updateVariable: (id: string, updates: Partial<Variable>) => void;
   deleteVariable: (id: string) => void;
   setCollectionActiveMode: (collectionId: string, modeId: string) => void;
+
+  // Phase 5: Prototyping Actions
+  createFlow: (name: string, startingPointId: string, description?: string) => string;
+  updateFlow: (flowId: string, updates: Partial<PrototypeFlow>) => void;
+  deleteFlow: (flowId: string) => void;
+  setStartingPoint: (frameId: string, flowName?: string) => string;
+  addInteraction: (interaction: Omit<PrototypeInteraction, 'id'>) => string;
+  updateInteraction: (sourceNodeId: string, interactionId: string, updates: Partial<PrototypeInteraction>) => void;
+  deleteInteraction: (sourceNodeId: string, interactionId: string) => void;
+  createConnection: (
+    sourceId: string,
+    destId: string,
+    trigger?: PrototypeTrigger,
+    action?: PrototypeAction,
+    transition?: PrototypeTransition,
+    overlay?: OverlayConfig
+  ) => string;
+  deleteConnection: (connectionId: string) => void;
+  updatePrototypeSettings: (settings: Partial<PrototypeSettings>) => void;
 
   // Asset actions
   addAsset: (asset: Asset) => void;
@@ -1382,6 +1422,154 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
         ...state.doc,
         variables: nextVariablesState,
         pages: nextPages,
+        updatedAt: Date.now(),
+      };
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return { doc: nextDoc };
+    });
+  },
+
+  // Prototyping Actions
+  createFlow: (name: string, startingPointId: string, description?: string) => {
+    let flowId = '';
+    set((state) => {
+      const res = makeFlow(state.doc, name, startingPointId, description);
+      flowId = res.flowId;
+      saveDocumentToStorage(res.nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: res.nextDoc,
+      };
+    });
+    return flowId;
+  },
+
+  updateFlow: (flowId: string, updates: Partial<PrototypeFlow>) => {
+    set((state) => {
+      const nextDoc = modifyFlow(state.doc, flowId, updates);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteFlow: (flowId: string) => {
+    set((state) => {
+      const nextDoc = removeFlow(state.doc, flowId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  setStartingPoint: (frameId: string, flowName = 'Main Flow') => {
+    let flowId = '';
+    set((state) => {
+      const res = assignStartingPoint(state.doc, frameId, flowName);
+      flowId = res.flowId;
+      saveDocumentToStorage(res.nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: res.nextDoc,
+      };
+    });
+    return flowId;
+  },
+
+  addInteraction: (interaction: Omit<PrototypeInteraction, 'id'>) => {
+    let interactionId = '';
+    set((state) => {
+      const res = makeInteraction(state.doc, interaction);
+      interactionId = res.interactionId;
+      saveDocumentToStorage(res.nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: res.nextDoc,
+      };
+    });
+    return interactionId;
+  },
+
+  updateInteraction: (
+    sourceNodeId: string,
+    interactionId: string,
+    updates: Partial<PrototypeInteraction>
+  ) => {
+    set((state) => {
+      const nextDoc = modifyInteraction(state.doc, sourceNodeId, interactionId, updates);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  deleteInteraction: (sourceNodeId: string, interactionId: string) => {
+    set((state) => {
+      const nextDoc = removeInteraction(state.doc, sourceNodeId, interactionId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  createConnection: (
+    sourceId: string,
+    destId: string,
+    trigger: PrototypeTrigger = 'on-click',
+    action: PrototypeAction = 'navigate-to',
+    transition: PrototypeTransition = { type: 'dissolve', duration: 300, easing: 'ease-out' },
+    overlay?: OverlayConfig
+  ) => {
+    let connectionId = '';
+    set((state) => {
+      const res = makeConnection(state.doc, sourceId, destId, trigger, action, transition, overlay);
+      connectionId = res.connectionId;
+      saveDocumentToStorage(res.nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: res.nextDoc,
+      };
+    });
+    return connectionId;
+  },
+
+  deleteConnection: (connectionId: string) => {
+    set((state) => {
+      const nextDoc = removeConnection(state.doc, connectionId);
+      saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));
+      return {
+        past: [...state.past.slice(-MAX_HISTORY), cloneDoc(state.doc)],
+        future: [],
+        doc: nextDoc,
+      };
+    });
+  },
+
+  updatePrototypeSettings: (settings: Partial<PrototypeSettings>) => {
+    set((state) => {
+      const currentProto = state.doc.prototype || createDefaultPrototypeData();
+      const nextDoc = {
+        ...state.doc,
+        prototype: {
+          ...currentProto,
+          settings: { ...currentProto.settings, ...settings },
+        },
         updatedAt: Date.now(),
       };
       saveDocumentToStorage(nextDoc, (status) => get().setSaveStatus(status));

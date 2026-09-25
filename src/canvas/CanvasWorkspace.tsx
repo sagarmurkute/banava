@@ -9,6 +9,7 @@ import { SelectionOverlay } from './SelectionOverlay';
 import { CanvasRulers } from './CanvasRulers';
 import { ContextMenu } from './ContextMenu';
 import { AutoLayoutVisualizer } from './AutoLayoutVisualizer';
+import { PrototypeConnectionOverlay } from './PrototypeConnectionOverlay';
 import { calculateBoundingBox, screenToCanvas, snap } from '../utils/geometry';
 import { calculateSmartGuidesAndSnap } from '../utils/smartGuides';
 import { processImageFile } from '../utils/imageImporter';
@@ -818,6 +819,9 @@ export const CanvasWorkspace: React.FC = () => {
             onMoveStart={handleSelectionMoveStart}
           />
         )}
+
+        {/* Prototype Connection Lines and Handles Overlay */}
+        <PrototypeConnectionOverlay zoom={zoom} />
 
         {/* Selected Frame Auto Layout Visualizer */}
         {selectedObjects.length === 1 &&

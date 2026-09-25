@@ -4,6 +4,7 @@ import { LeftSidebar } from './LeftSidebar';
 import { CanvasWorkspace } from '../canvas/CanvasWorkspace';
 import { RightInspector } from '../inspector/RightInspector';
 import { BottomBar } from './BottomBar';
+import { PrototypePlayer } from '../prototype/preview/PrototypePlayer';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import './app.css';
 
@@ -24,6 +25,7 @@ export const AppShell: React.FC = () => {
         </div>
       </div>
       <BottomBar />
+      <PrototypePlayer />
     </div>
   );
 };

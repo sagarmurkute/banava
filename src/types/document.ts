@@ -338,6 +338,9 @@ export interface DesignSystemVariables {
   activeModeIdByCollection: Record<string, string>;
 }
 
+import type { PrototypeDocumentData } from '../prototype/types';
+export * from '../prototype/types';
+
 export interface DocumentModel {
   version: number;
   id: string;
@@ -350,6 +353,8 @@ export interface DocumentModel {
   componentSets?: Record<string, ComponentSet>;
   styles?: DesignSystemStyles;
   variables?: DesignSystemVariables;
+  // Phase 5 Prototype additions
+  prototype?: PrototypeDocumentData;
   createdAt: number;
   updatedAt: number;
 }

@@ -21,6 +21,7 @@ import {
   Ungroup,
   Rows,
   Columns,
+  Component as ComponentIcon,
 } from 'lucide-react';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
@@ -135,6 +136,22 @@ export const LayersPanel: React.FC = () => {
   };
 
   const getObjectIcon = (obj: SceneObject) => {
+    if (obj.isComponent) {
+      return (
+        <span title="Master Component">
+          <ComponentIcon size={13} className="layer-icon component" style={{ color: '#c084fc' }} />
+        </span>
+      );
+    }
+
+    if (obj.type === 'instance') {
+      return (
+        <span title="Component Instance">
+          <ComponentIcon size={13} className="layer-icon instance" style={{ color: '#818cf8' }} />
+        </span>
+      );
+    }
+
     if (obj.type === 'frame') {
       const frame = obj as FrameObject;
       if (frame.layoutMode === 'horizontal') {

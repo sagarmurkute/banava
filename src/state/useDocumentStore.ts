@@ -1030,14 +1030,14 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       // Cascade update to referencing objects
       const nextPages = state.doc.pages.map((p) => {
         const nextObjects = p.objects.map((obj) => {
-          let updatedObj = obj;
+          let updatedObj: any = obj;
           if (obj.fillStyleId === id && updates.color) {
             updatedObj = { ...updatedObj, fill: updates.color, opacity: updates.opacity ?? updatedObj.opacity };
           }
           if (obj.strokeStyleId === id && updates.color) {
-            updatedObj = { ...updatedObj, stroke: updates.color, strokeOpacity: updates.opacity ?? (updatedObj as any).strokeOpacity };
+            updatedObj = { ...updatedObj, stroke: updates.color, strokeOpacity: updates.opacity ?? updatedObj.strokeOpacity };
           }
-          return updatedObj;
+          return updatedObj as SceneObject;
         });
         return { ...p, objects: nextObjects };
       });
@@ -1256,7 +1256,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
     collectionId = 'col_tokens_default',
     description?: string
   ) => {
-    const currentVars = state.doc.variables || {
+    const currentVars = get().doc.variables || {
       variables: {},
       collections: {},
       activeModeIdByCollection: {},
@@ -1297,7 +1297,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       // Cascade variable value changes (e.g. Color / Spacing) to referencing objects
       const nextPages = state.doc.pages.map((p) => {
         const nextObjects = p.objects.map((obj) => {
-          let updatedObj = obj;
+          let updatedObj: any = obj;
           if (obj.fillVariableId === id) {
             const val = Object.values(updated.valuesByMode)[0];
             if (typeof val === 'string') updatedObj = { ...updatedObj, fill: val };
@@ -1306,7 +1306,7 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
             const val = Object.values(updated.valuesByMode)[0];
             if (typeof val === 'string') updatedObj = { ...updatedObj, stroke: val };
           }
-          return updatedObj;
+          return updatedObj as SceneObject;
         });
         return recomputePageLayout({ ...p, objects: nextObjects });
       });
@@ -1366,14 +1366,14 @@ export const useDocumentStore = create<DocumentStoreState>((set, get) => ({
       // Recompute page layout and style values for the new active mode
       const nextPages = state.doc.pages.map((p) => {
         const nextObjects = p.objects.map((obj) => {
-          let updatedObj = obj;
+          let updatedObj: any = obj;
           if (obj.fillVariableId) {
             const v = currentVars.variables[obj.fillVariableId];
             if (v && v.valuesByMode[modeId] !== undefined) {
               updatedObj = { ...updatedObj, fill: v.valuesByMode[modeId] };
             }
           }
-          return updatedObj;
+          return updatedObj as SceneObject;
         });
         return recomputePageLayout({ ...p, objects: nextObjects });
       });

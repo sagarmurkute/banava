@@ -654,12 +654,25 @@ export const CanvasWorkspace: React.FC = () => {
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    const componentId =
+      e.dataTransfer.getData('text/component-id') ||
+      e.dataTransfer.getData('application/banava-component-id');
+    const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+
+    if (componentId) {
+      const instId = useDocumentStore.getState().createInstance(componentId, x, y);
+      if (instId) {
+        select(instId);
+        useUIStore.getState().setStatusMessage('Created component instance');
+      }
+      return;
+    }
+
     if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
 
     const file = e.dataTransfer.files[0];
     if (!file.type.startsWith('image/')) return;
 
-    const { x, y } = getCanvasCoords(e.clientX, e.clientY);
     try {
       const { asset, imageObject } = await processImageFile(file, x, y);
       useDocumentStore.getState().addAsset(asset);

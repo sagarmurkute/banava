@@ -74,15 +74,59 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
   };
 
   switch (object.type) {
+    case 'instance': {
+      const inst = object as any;
+      return (
+        <div
+          id={`obj-${inst.id}`}
+          style={{
+            ...style,
+            backgroundColor: inst.fill || 'transparent',
+            border: inst.stroke ? `${inst.strokeWidth || 1}px solid ${inst.stroke}` : '1px dashed rgba(168, 85, 247, 0.4)',
+            borderRadius: `${inst.cornerRadius || 0}px`,
+            overflow: inst.clipsContent ? 'hidden' : 'visible',
+            boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
+          }}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={(e) => onDoubleClick?.(e, inst.id)}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: '-20px',
+              left: '0px',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#c084fc',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <span>◇</span>
+            <span>{inst.name}</span>
+          </div>
+          {inst.layoutGrids && <LayoutGridOverlay frame={inst} />}
+        </div>
+      );
+    }
+
     case 'frame': {
       const frame = object as FrameObject;
+      const isComp = frame.isComponent || !!frame.componentId;
       return (
         <div
           id={`obj-${frame.id}`}
           style={{
             ...style,
             backgroundColor: frame.fill || 'transparent',
-            border: frame.stroke ? `${frame.strokeWidth || 1}px solid ${frame.stroke}` : undefined,
+            border: frame.stroke
+              ? `${frame.strokeWidth || 1}px solid ${frame.stroke}`
+              : isComp
+              ? '1px dashed rgba(192, 132, 252, 0.5)'
+              : undefined,
             borderRadius: `${frame.cornerRadius || 0}px`,
             overflow: frame.clipsContent ? 'hidden' : 'visible',
             boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
@@ -96,13 +140,17 @@ export const CanvasObjectRenderer: React.FC<CanvasObjectRendererProps> = ({
               top: '-20px',
               left: '0px',
               fontSize: '11px',
-              fontWeight: 500,
-              color: '#94a3b8',
+              fontWeight: isComp ? 600 : 500,
+              color: isComp ? '#c084fc' : '#94a3b8',
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
             }}
           >
-            {frame.name}
+            {isComp && <span>❖</span>}
+            <span>{frame.name}</span>
           </div>
           <LayoutGridOverlay frame={frame} />
         </div>

@@ -71,6 +71,18 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      // Create Component Shortcut (Ctrl/Cmd + Alt + K)
+      if (isCtrlOrMeta && e.altKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        if (selectedIds.length === 1) {
+          const compId = useDocumentStore.getState().createComponent(selectedIds[0]);
+          if (compId) {
+            setStatusMessage('Created Master Component (Ctrl+Alt+K)');
+          }
+        }
+        return;
+      }
+
       // Group / Ungroup (Ctrl/Cmd + G, Ctrl/Cmd + Shift + G)
       if (isCtrlOrMeta && (e.key === 'g' || e.key === 'G')) {
         e.preventDefault();

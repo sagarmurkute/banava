@@ -4,8 +4,6 @@ import type {
   SceneObject,
   ComponentDefinition,
   ComponentInstanceObject,
-  ComponentSet,
-  FrameObject,
 } from '../types/document';
 import { generateId } from '../utils/id';
 import { recomputePageLayout } from '../layout/layoutEngine';
@@ -213,19 +211,29 @@ export function syncInstancesFromMaster(
         // Sync instance root itself
         if (obj.id === inst.id) {
           const rootOverrides = overrides[masterRoot!.id] || {};
+          const instObj = obj as ComponentInstanceObject;
           return {
             ...masterRoot,
-            ...obj, // preserve instance position, id, parentId, overrides
-            id: obj.id,
+            id: instObj.id,
             type: 'instance',
-            x: obj.x,
-            y: obj.y,
-            parentId: obj.parentId,
+            name: instObj.name,
+            x: instObj.x,
+            y: instObj.y,
+            parentId: instObj.parentId,
             componentId: componentId,
             isComponent: false,
-            // Apply root overrides
+            overrides: instObj.overrides,
+            propertyValues: instObj.propertyValues,
+            variantProperties: instObj.variantProperties,
+            fill: rootOverrides.fill ?? (masterRoot as any).fill,
+            stroke: rootOverrides.stroke ?? (masterRoot as any).stroke,
+            strokeWidth: rootOverrides.strokeWidth ?? (masterRoot as any).strokeWidth,
+            strokeOpacity: rootOverrides.strokeOpacity ?? (masterRoot as any).strokeOpacity,
+            cornerRadius: rootOverrides.cornerRadius ?? (masterRoot as any).cornerRadius,
+            opacity: rootOverrides.opacity ?? masterRoot.opacity,
+            visible: rootOverrides.visible ?? masterRoot.visible,
             ...rootOverrides,
-          } as SceneObject;
+          } as unknown as SceneObject;
         }
 
         // Sync instance children
@@ -251,7 +259,7 @@ export function syncInstancesFromMaster(
                   ? childOverrides.content ?? (masterChild as any).content
                   : undefined,
               ...childOverrides,
-            } as SceneObject;
+            } as unknown as SceneObject;
           }
         }
 

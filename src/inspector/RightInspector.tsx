@@ -16,6 +16,7 @@ import {
   ArrowDown,
   Star,
   Triangle,
+  Component as ComponentIcon,
 } from 'lucide-react';
 import { useDocumentStore } from '../state/useDocumentStore';
 import { useSelectionStore } from '../state/useSelectionStore';
@@ -29,6 +30,9 @@ import { AutoLayoutInspector } from './AutoLayoutInspector';
 import { ConstraintsInspector } from './ConstraintsInspector';
 import { SizingInspector } from './SizingInspector';
 import { LayoutGridInspector } from './LayoutGridInspector';
+import { ComponentInspector } from './ComponentInspector';
+import { InstanceInspector } from './InstanceInspector';
+import { StylePickerDropdown } from './StylePickerDropdown';
 import type {
   RectangleObject,
   FrameObject,
@@ -37,6 +41,7 @@ import type {
   ImageObject,
   LineObject,
   SceneObject,
+  ComponentInstanceObject,
 } from '../types/document';
 import './inspector.css';
 
@@ -76,6 +81,7 @@ export const RightInspector: React.FC = () => {
     deleteObjects,
     alignObjects,
     reorderObject,
+    createComponent,
   } = useDocumentStore();
   const { selectedIds } = useSelectionStore();
 
@@ -212,15 +218,28 @@ export const RightInspector: React.FC = () => {
   };
 
   const parent = target.parentId ? objects.find((o) => o.id === target.parentId) : null;
-  const isParentFrame = parent && parent.type === 'frame';
-  const isParentAutoLayout = isParentFrame && (parent as FrameObject).layoutMode && (parent as FrameObject).layoutMode !== 'none';
-  const isTargetFrame = target.type === 'frame';
+  const isParentFrame = parent && (parent.type === 'frame' || parent.type === 'instance');
+  const isParentAutoLayout =
+    isParentFrame && (parent as FrameObject).layoutMode && (parent as FrameObject).layoutMode !== 'none';
+  const isTargetFrame = target.type === 'frame' || target.type === 'instance';
 
   return (
     <aside className="app-right-inspector">
       <div className="inspector-header">
-        <span className="inspector-title truncate">{target.name}</span>
+        <div className="flex items-center gap-1.5 truncate">
+          {target.isComponent && <ComponentIcon size={14} className="text-purple-400 flex-shrink-0" />}
+          {target.type === 'instance' && <ComponentIcon size={14} className="text-indigo-400 flex-shrink-0" />}
+          <span className="inspector-title truncate">{target.name}</span>
+        </div>
         <div className="flex items-center gap-1">
+          {!target.isComponent && target.type !== 'instance' && (
+            <IconButton
+              icon={<ComponentIcon size={13} />}
+              size="sm"
+              tooltip="Create Component (Ctrl+Alt+K)"
+              onClick={() => createComponent(target.id)}
+            />
+          )}
           <IconButton
             icon={<ChevronsUp size={13} />}
             size="sm"
@@ -254,6 +273,14 @@ export const RightInspector: React.FC = () => {
         </div>
       </div>
 
+      {/* Phase 4: Master Component Inspector */}
+      {target.isComponent && <ComponentInspector target={target} />}
+
+      {/* Phase 4: Component Instance Inspector */}
+      {target.type === 'instance' && (
+        <InstanceInspector target={target as ComponentInstanceObject} />
+      )}
+
       {/* Position & Transform */}
       <PanelSection title="Transform">
         <div className="inspector-row-2col">
@@ -286,11 +313,14 @@ export const RightInspector: React.FC = () => {
           <NumberInput
             label="∠"
             value={target.rotation || 0}
-            onChange={(val) => handleUpdate({ rotation: (val % 360 + 360) % 360 })}
+            onChange={(val) => handleUpdate({ rotation: ((val % 360) + 360) % 360 })}
             suffix="°"
           />
-          {/* Corner radius for rectangles, frames, images */}
-          {(target.type === 'rectangle' || target.type === 'frame' || target.type === 'image') && (
+          {/* Corner radius for rectangles, frames, images, instances */}
+          {(target.type === 'rectangle' ||
+            target.type === 'frame' ||
+            target.type === 'instance' ||
+            target.type === 'image') && (
             <NumberInput
               label="R"
               value={(target as RectangleObject | FrameObject | ImageObject).cornerRadius || 0}
@@ -302,7 +332,7 @@ export const RightInspector: React.FC = () => {
         </div>
       </PanelSection>
 
-      {/* Auto Layout section for frames */}
+      {/* Auto Layout section for frames/instances */}
       {isTargetFrame && <AutoLayoutInspector target={target as FrameObject} />}
 
       {/* Sizing & limits inspector */}
@@ -375,7 +405,10 @@ export const RightInspector: React.FC = () => {
       <PanelSection title="Appearance">
         {'fill' in target && (
           <div className="inspector-field-group">
-            <span className="field-label">Fill</span>
+            <div className="flex items-center justify-between">
+              <span className="field-label">Fill</span>
+              <StylePickerDropdown target={target} type="fill-color" />
+            </div>
             <ColorInput
               value={(target as RectangleObject | FrameObject | TextObject | PolygonObject).fill || '#ffffff'}
               onChange={(val) => handleUpdate({ fill: val })}
@@ -386,8 +419,11 @@ export const RightInspector: React.FC = () => {
         )}
 
         {'stroke' in target && (
-          <div className="inspector-field-group">
-            <span className="field-label">Stroke</span>
+          <div className="inspector-field-group mt-2">
+            <div className="flex items-center justify-between">
+              <span className="field-label">Stroke</span>
+              <StylePickerDropdown target={target} type="stroke-color" />
+            </div>
             <ColorInput
               value={(target as RectangleObject | LineObject).stroke || '#2e3444'}
               onChange={(val) => handleUpdate({ stroke: val })}
@@ -423,7 +459,10 @@ export const RightInspector: React.FC = () => {
 
       {/* Typography settings for Text objects */}
       {target.type === 'text' && (
-        <PanelSection title="Typography">
+        <PanelSection
+          title="Typography"
+          action={<StylePickerDropdown target={target} type="typography" />}
+        >
           <div className="inspector-field-group">
             <span className="field-label">Font</span>
             <SelectInput

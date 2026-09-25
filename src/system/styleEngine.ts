@@ -5,8 +5,6 @@ import type {
   DesignSystemStyles,
   SceneObject,
   TextObject,
-  FrameObject,
-  RectangleObject,
 } from '../types/document';
 import { generateId } from '../utils/id';
 
@@ -160,7 +158,7 @@ export function createDefaultStyles(): DesignSystemStyles {
 }
 
 export function applyColorStyleToObject(
-  obj: SceneObject,
+  _obj: SceneObject,
   style: ColorStyle,
   target: 'fill' | 'stroke' = 'fill'
 ): Partial<SceneObject> {
@@ -180,7 +178,7 @@ export function applyColorStyleToObject(
 }
 
 export function applyTextStyleToObject(
-  obj: TextObject,
+  _obj: TextObject,
   style: TextStyle
 ): Partial<TextObject> {
   return {

@@ -14,6 +14,12 @@ import { calculateBoundingBox, screenToCanvas, snap } from '../utils/geometry';
 import { calculateSmartGuidesAndSnap } from '../utils/smartGuides';
 import { processImageFile } from '../utils/imageImporter';
 import { generateId } from '../utils/id';
+import { LiveCursorsOverlay } from '../collaboration/cursors/LiveCursorsOverlay';
+import { LiveSelectionBoxes } from '../collaboration/cursors/LiveSelectionBoxes';
+import { CanvasCommentsLayer } from '../collaboration/comments/CanvasCommentsLayer';
+import { usePresenceStore } from '../collaboration/presence/usePresenceStore';
+import { useCommentsStore } from '../collaboration/comments/useCommentsStore';
+import { usePermissionsStore } from '../collaboration/permissions/usePermissionsStore';
 import type { SceneObject, ResizeHandleType, BoundingBox, SmartGuideLine, FrameObject } from '../types/document';
 import './canvas.css';
 
@@ -119,6 +125,17 @@ export const CanvasWorkspace: React.FC = () => {
     }
 
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+
+    // If comment tool is active, place a comment pin
+    if (useCommentsStore.getState().isCommentModeActive) {
+      useCommentsStore.getState().setNewCommentCoords({ x, y });
+      return;
+    }
+
+    // If user has viewer role, disallow creating new objects
+    if (usePermissionsStore.getState().currentUserRole === 'viewer') {
+      if (activeTool !== 'select') return;
+    }
 
     // If active tool is a creation tool
     if (activeTool !== 'select') {
@@ -686,6 +703,20 @@ export const CanvasWorkspace: React.FC = () => {
     }
   };
 
+  // Sync local selection with presence
+  useEffect(() => {
+    usePresenceStore.getState().updateLocalSelection(selectedIds);
+  }, [selectedIds]);
+
+  const handleWorkspaceMouseMove = (e: React.MouseEvent) => {
+    const { x, y } = getCanvasCoords(e.clientX, e.clientY);
+    usePresenceStore.getState().updateLocalCursor(x, y);
+  };
+
+  const handleWorkspaceMouseLeave = () => {
+    usePresenceStore.getState().updateLocalCursor(null, null);
+  };
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     const { x, y } = getCanvasCoords(e.clientX, e.clientY);
@@ -704,6 +735,8 @@ export const CanvasWorkspace: React.FC = () => {
       style={{ cursor: getCursor() }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
+      onMouseMove={handleWorkspaceMouseMove}
+      onMouseLeave={handleWorkspaceMouseLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onContextMenu={handleContextMenu}
@@ -921,6 +954,11 @@ export const CanvasWorkspace: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Live Multiplayer Cursors, Selections, and Canvas Comments */}
+      <LiveSelectionBoxes />
+      <LiveCursorsOverlay />
+      <CanvasCommentsLayer />
     </div>
   );
 };

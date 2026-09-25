@@ -32,6 +32,7 @@ import type { ToolType } from '../types/document';
 import { IconButton } from '../components/ui/IconButton';
 import { TopFileMenu } from './TopFileMenu';
 import { UserAvatarMenu } from '../backend/auth/UserAvatarMenu';
+import { CollaboratorAvatarStack } from '../collaboration/presence/CollaboratorAvatarStack';
 import './app.css';
 
 export const TopToolbar: React.FC = () => {
@@ -50,6 +51,8 @@ export const TopToolbar: React.FC = () => {
     setEditorMode,
     setIsPresenting,
     setViewMode,
+    isCommentsSidebarOpen,
+    toggleCommentsSidebar,
   } = useUIStore();
 
   const [isEditingDocName, setIsEditingDocName] = useState(false);
@@ -291,6 +294,12 @@ export const TopToolbar: React.FC = () => {
             <span>Save</span>
           </button>
         </div>
+
+        <div className="toolbar-btn-divider" />
+        <CollaboratorAvatarStack
+          onToggleCommentsSidebar={toggleCommentsSidebar}
+          isCommentsSidebarOpen={isCommentsSidebarOpen}
+        />
 
         <div className="toolbar-btn-divider" />
         <UserAvatarMenu />

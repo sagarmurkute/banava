@@ -19,6 +19,9 @@ interface UIState {
   activeModal: 'none' | 'documentInfo' | 'snapshots' | 'recovery' | 'export';
   searchQuery: string;
   
+  isCommentsSidebarOpen: boolean;
+  toggleCommentsSidebar: () => void;
+  setCommentsSidebarOpen: (open: boolean) => void;
   setViewMode: (mode: 'editor' | 'dashboard') => void;
   setDashboardTab: (tab: 'recent' | 'projects' | 'folders' | 'templates' | 'trash') => void;
   setSelectedProjectId: (id: string | null) => void;
@@ -57,7 +60,10 @@ export const useUIStore = create<UIState>((set) => ({
   showConnectionLines: true,
   activeModal: 'none',
   searchQuery: '',
+  isCommentsSidebarOpen: false,
 
+  toggleCommentsSidebar: () => set((s) => ({ isCommentsSidebarOpen: !s.isCommentsSidebarOpen })),
+  setCommentsSidebarOpen: (open) => set({ isCommentsSidebarOpen: open }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setDashboardTab: (tab) => set({ dashboardTab: tab }),
   setSelectedProjectId: (id) => set({ selectedProjectId: id }),
